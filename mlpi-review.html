@@ -1,0 +1,975 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Plinco MLPI — Mid-Level Performance &amp; Integrity Review</title>
+<style>
+  :root {
+    --bg: #EAF3FB;
+    --sky-top: #D8E8F5;
+    --sky-bottom: #F4F8FC;
+    --tint: #5B7FB8;
+    --tint-pressed: #4A6B9E;
+    --tint-soft: #D2DFEF;
+    --text: #1F2430;
+    --subtle: #5A6473;
+    --faint: #9AA5B4;
+    --border: #D8E3EE;
+    --border-strong: #BFCFE0;
+    --surface: #FFFFFF;
+    --success: #4F9A6E;
+    --warning: #C58B4E;
+    --danger: #C5594A;
+    --shadow: 0 2px 16px rgba(30,50,90,0.10);
+    --architect: #8B5CF6;
+    --lead: #0891B2;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: #F0F5FA;
+    min-height: 100vh;
+    padding: 40px 20px 80px;
+    color: var(--text);
+    max-width: 1100px;
+    margin: 0 auto;
+  }
+
+  h1 {
+    text-align: center;
+    font-size: 28px;
+    font-weight: 600;
+    letter-spacing: -0.4px;
+    margin-bottom: 4px;
+    color: var(--text);
+  }
+  .deck-subtitle {
+    text-align: center;
+    font-size: 15px;
+    color: var(--subtle);
+    margin-bottom: 12px;
+  }
+  .deck-meta {
+    text-align: center;
+    font-size: 12px;
+    color: var(--faint);
+    margin-bottom: 48px;
+  }
+
+  .section-label {
+    text-align: center;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+    color: var(--faint);
+    margin-bottom: 24px;
+    margin-top: 60px;
+  }
+  .section-label:first-of-type { margin-top: 0; }
+
+  /* Cards */
+  .card {
+    background: white;
+    border-radius: 18px;
+    box-shadow: var(--shadow);
+    padding: 28px 32px;
+    margin-bottom: 24px;
+  }
+  .card h2 {
+    font-size: 17px;
+    font-weight: 600;
+    margin-bottom: 6px;
+    color: var(--text);
+  }
+  .card h3 {
+    font-size: 14px;
+    font-weight: 600;
+    margin-top: 18px;
+    margin-bottom: 6px;
+    color: var(--text);
+  }
+  .card p, .card li {
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--text);
+  }
+  .card ul { padding-left: 18px; margin: 6px 0 10px; }
+  .card li { margin-bottom: 4px; }
+  .card .subtle { color: var(--subtle); }
+
+  /* Tags */
+  .tag {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 99px;
+    letter-spacing: 0.4px;
+    margin-right: 6px;
+    vertical-align: middle;
+  }
+  .tag-shipped { background: rgba(34,197,94,0.12); color: var(--success); }
+  .tag-perf { background: rgba(91,127,184,0.12); color: var(--tint); }
+  .tag-copy { background: rgba(197,139,78,0.12); color: var(--warning); }
+  .tag-arch { background: rgba(139,92,246,0.12); color: var(--architect); }
+  .tag-lead { background: rgba(8,145,178,0.12); color: var(--lead); }
+  .tag-dedup { background: rgba(197,89,74,0.12); color: var(--danger); }
+
+  /* Code blocks */
+  .code-block {
+    background: #F8F9FA;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 14px;
+    font-family: 'Menlo', 'Courier New', monospace;
+    font-size: 11px;
+    line-height: 1.7;
+    overflow-x: auto;
+    margin: 8px 0 12px;
+  }
+  .code-del { color: var(--danger); text-decoration: line-through; }
+  .code-add { color: #16A34A; }
+  .code-ctx { color: var(--subtle); }
+
+  /* Flow diagrams */
+  .flow-row {
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin-bottom: 8px;
+  }
+
+  .phone {
+    width: 200px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+  }
+  .phone-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--subtle);
+    letter-spacing: 0.4px;
+    text-align: center;
+  }
+  .phone-shell {
+    width: 200px;
+    height: 360px;
+    background: linear-gradient(160deg, var(--sky-top), var(--sky-bottom));
+    border-radius: 32px;
+    box-shadow: var(--shadow), 0 0 0 2px rgba(180,200,230,0.5);
+    overflow: hidden;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    padding: 20px 16px 16px;
+    border: 1.5px solid rgba(180,200,230,0.6);
+  }
+  .phone-shell::before {
+    content: '';
+    position: absolute;
+    top: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 44px;
+    height: 5px;
+    background: rgba(180,200,230,0.7);
+    border-radius: 3px;
+  }
+
+  .arrow {
+    display: flex;
+    align-items: center;
+    align-self: center;
+    color: var(--faint);
+    font-size: 22px;
+    flex-shrink: 0;
+    margin-top: -40px;
+  }
+
+  .connector {
+    text-align: center;
+    font-size: 11px;
+    color: var(--faint);
+    margin: 8px 0 16px;
+    letter-spacing: 0.5px;
+  }
+
+  /* UI atoms */
+  .ui-hero { font-size: 22px; font-weight: 600; letter-spacing: -0.3px; color: var(--text); margin-bottom: 3px; }
+  .ui-subtitle { font-size: 12px; color: var(--subtle); margin-bottom: 14px; line-height: 1.5; }
+  .ui-btn {
+    width: 100%;
+    padding: 9px 12px;
+    border-radius: 10px;
+    font-size: 13px;
+    font-weight: 500;
+    text-align: center;
+    margin-bottom: 7px;
+    border: none;
+    cursor: default;
+  }
+  .btn-primary { background: var(--tint); color: white; }
+  .btn-secondary { background: var(--surface); color: var(--text); border: 1.5px solid var(--border); }
+  .btn-ghost { background: transparent; color: var(--tint); font-size: 12px; }
+  .ui-tip {
+    background: rgba(59,130,246,0.08);
+    border-radius: 8px;
+    padding: 7px 9px;
+    font-size: 10px;
+    color: var(--tint);
+    margin-bottom: 7px;
+    line-height: 1.4;
+  }
+  .ui-caption { font-size: 10px; color: var(--subtle); text-align: center; }
+  .ui-status-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 4px;
+    font-size: 11px;
+    color: var(--subtle);
+  }
+  .dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .dot-green { background: var(--success); }
+  .dot-gray { background: var(--faint); }
+  .dot-blue { background: var(--tint); }
+
+  /* Impact meter */
+  .impact {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 8px 0;
+    font-size: 12px;
+    color: var(--subtle);
+  }
+  .impact-bar {
+    height: 6px;
+    border-radius: 3px;
+    background: var(--border);
+    flex: 1;
+    overflow: hidden;
+  }
+  .impact-fill {
+    height: 100%;
+    border-radius: 3px;
+  }
+  .impact-high .impact-fill { width: 85%; background: var(--success); }
+  .impact-med .impact-fill { width: 55%; background: var(--tint); }
+  .impact-low .impact-fill { width: 30%; background: var(--warning); }
+
+  /* Delegation cards */
+  .delegate {
+    background: #FAFBFC;
+    border: 1.5px dashed var(--border-strong);
+    border-radius: 12px;
+    padding: 16px 20px;
+    margin: 12px 0;
+  }
+  .delegate-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+  }
+  .delegate-icon {
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    color: white;
+  }
+  .delegate-arch { background: var(--architect); }
+  .delegate-lead { background: var(--lead); }
+  .delegate p { font-size: 12px; line-height: 1.5; color: var(--subtle); }
+
+  .version-chip {
+    display: inline-block;
+    background: var(--tint-soft);
+    color: var(--tint);
+    font-size: 10px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 99px;
+    letter-spacing: 0.4px;
+    margin-left: 8px;
+  }
+
+  .sp { height: 16px; }
+
+  .sheep-deco {
+    position: absolute;
+    font-size: 14px;
+    opacity: 0.5;
+    pointer-events: none;
+    animation: float 6s ease-in-out infinite;
+  }
+  @keyframes float {
+    0%,100% { transform: translateY(0px); }
+    50% { transform: translateY(-5px); }
+  }
+
+  .pulse-circle {
+    width: 70px;
+    height: 70px;
+    border-radius: 50%;
+    background: rgba(59,130,246,0.12);
+    border: 2px solid rgba(59,130,246,0.25);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    align-self: center;
+    margin: 8px auto;
+    position: relative;
+  }
+  .pulse-circle::after {
+    content: '';
+    position: absolute;
+    inset: -6px;
+    border-radius: 50%;
+    border: 1.5px solid rgba(59,130,246,0.12);
+    animation: pulse 2s ease-out infinite;
+  }
+  @keyframes pulse {
+    0% { opacity: 1; transform: scale(1); }
+    100% { opacity: 0; transform: scale(1.25); }
+  }
+
+  .timer-text {
+    font-size: 24px;
+    font-weight: 300;
+    letter-spacing: 1px;
+    color: var(--text);
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .camera-preview {
+    width: 100%;
+    height: 50px;
+    border-radius: 10px;
+    background: linear-gradient(135deg, #1a2233 0%, #2d3748 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 6px;
+    position: relative;
+    overflow: hidden;
+  }
+  .camera-preview::after {
+    content: '▶';
+    color: rgba(255,255,255,0.3);
+    font-size: 14px;
+  }
+</style>
+</head>
+<body>
+
+<h1>Plinco MLPI Review</h1>
+<p class="deck-subtitle">Mid-Level Performance &amp; Integrity · v0.16.x + v0.16.x safety pass</p>
+<p class="deck-meta">Covers: junior review, performance fixes shipped, safety pass (4 issues), architecture concerns, delegation to lead &amp; architect</p>
+
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<div class="section-label">Junior work review</div>
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+
+<div class="card">
+  <h2>Junior's onboarding-flow.html — verdict</h2>
+  <p class="subtle" style="margin-bottom:12px">The presentation is well-structured and matches the real design language. Three things to sharpen:</p>
+
+  <h3>Accurate and useful</h3>
+  <ul>
+    <li><strong>Copy issues ① ③ ④ ⑤</strong> are correctly identified and the code fixes for ③ ④ ⑤ are clean, scoped, and pass tests. Good junior work.</li>
+    <li><strong>Issue ②</strong> (Welcome button labels) is correctly flagged but the presentation shows "Start Plinco Session" / "Join Plinco Session" — the code still has these exact strings. This is accurate to source but the fix wasn't shipped. <span class="tag tag-lead">LEAD</span> Copy decision needed.</li>
+    <li><strong>Issues ⑥ ⑦ ⑧</strong> were flagged but left unshipped. I've fixed ⑥ and ⑧ in this review (see below).</li>
+  </ul>
+
+  <h3>Missing from the presentation</h3>
+  <ul>
+    <li><strong>No parent on-call flow shown.</strong> The on-call screen is the heart of v0.16 — P-logo header, sleepy mode animation, "Baby settling" hero, "Put display to sleep" + (i) popover, engaged-beat interaction tracking. None of this appears in the flow diagram.</li>
+    <li><strong>No monetization entry points.</strong> The village-size gate (free = 2 devices, paid = unlimited) has clear UI implications — "Grow your village" is already in Welcome but there's no indication of where the upgrade prompt will appear.</li>
+    <li><strong>Presentation stops at "cry detected."</strong> The escalation protocol (self-soothe timer → inapp/call channel routing → confirm workflow → resolution feedback to baby host) is the deepest UX chain in the app and isn't shown.</li>
+  </ul>
+
+  <h3>Design accuracy issues in the presentation</h3>
+  <ul>
+    <li>Sign-in screen shows "Plinco" hero + subtitle — the actual sign-in has no hero text, just fields + buttons + "New here?" link</li>
+    <li>Baby monitoring shows "Put display to sleep" as primary (blue) — correct</li>
+    <li>On-call screen is close but the real button stack order is: Put display to sleep → Adjust timer → Watch Video → Cry Detection Settings → [gap] → Leave session</li>
+  </ul>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<div class="section-label">Safety pass — v0.16.x (4 issues from Dave's device testing)</div>
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+
+<div class="card">
+  <h2><span class="tag tag-shipped">SHIPPED</span> Issue 1 — Swipe-away gives no warning</h2>
+  <p class="subtle" style="margin-bottom:8px">Dave: "if you host a plinco session and you swipe away the app without 'ending' the session and you come back into the app, we should do the same behavior as locking."</p>
+
+  <div class="impact impact-high">
+    <span>Safety impact</span>
+    <div class="impact-bar"><div class="impact-fill"></div></div>
+    <span>Critical — baby unwatched with no notification</span>
+  </div>
+
+  <p><strong>Root cause:</strong> On iOS, swiping the app away kills the JS process immediately, bypassing the graceful session teardown. The component cleanup (which calls <code>stopBabyForegroundSession</code>) never runs. On Android, the Notifee foreground service keeps JS alive so this is less severe there — but still possible via Settings → Force Stop.</p>
+
+  <p><strong>Fix:</strong> Mirrored the existing <code>onCallResume.ts</code> pattern on the baby side.</p>
+  <div class="code-block">
+<span class="code-ctx">// New file: src/baby/babySessionResume.ts</span>
+<span class="code-add">// SecureStore key: 'plinco.baby.session.active.v1', TTL: 12h</span>
+<span class="code-add">saveBabySessionActive(callId)   // called on BabyMonitoring mount</span>
+<span class="code-add">clearBabySessionActive()         // called in session cleanup (graceful end)</span>
+<span class="code-add">loadBabySessionActive()          // checked in BabySetup on mount</span>
+<span class="code-ctx">// If flag is set on next launch → blocking WarningModal before setup screen</span>
+  </div>
+
+  <p><strong>WarningModal refactor:</strong> The existing <code>WarningModal</code> component (for the in-session lock-screen warning) was extended with optional <code>headline</code>, <code>body</code>, and <code>cta</code> props so the interrupted-session instance can say "This phone was NOT monitoring" / "I understand, continue" without duplicating the component.</p>
+
+  <p><strong>Tests:</strong> New <code>babySessionResume.test.ts</code> — 3 describe blocks pinning the module interface, baby.tsx wiring, and sleepTrainer reset. <code>babyAppState.test.ts</code> updated for the <code>label={cta}</code> refactor.</p>
+</div>
+
+<div class="card">
+  <h2><span class="tag tag-shipped">SHIPPED</span> Issue 2 — "All quiet" shown in test_always mode</h2>
+  <p class="subtle" style="margin-bottom:8px">Dave: "When you use the always distress mode, it shows as 'all quiet' — it shows as distress red for like 3 seconds, then it says all quiet pretty quickly."</p>
+
+  <p><strong>Root cause:</strong> <code>distressActive</code> is only true for 3 seconds after each cry-detector pulse (<code>DISTRESS_WINDOW_MS = 3_000</code>). The cry detector has a 30-second cooldown. Between pulses, <code>distressActive = false</code>, so the two-way ternary fell through to "All quiet" — even though test mode is supposed to be always distressed.</p>
+
+  <p><strong>Fix:</strong> Three-way ternary:</p>
+  <div class="code-block">
+<span class="code-del">- {distressActive ? 'Distress detected' : 'All quiet'}</span>
+<span class="code-add">+ {distressActive ? 'Distress detected' : testMode ? 'Test mode — always active' : 'All quiet'}</span>
+  </div>
+
+  <p>"All quiet" is now unreachable while <code>testMode</code> is true. The existing TEST MODE banner (red-bordered, danger color, shows the timer) already gave the always-on signal; this fix makes the sub-label consistent with it.</p>
+
+  <p><strong>Tests:</strong> New assertion in <code>babyTestMode.test.ts</code> pinning the three-way ternary. <code>babySleepyMode.test.ts</code> updated to the same pattern.</p>
+</div>
+
+<div class="card" style="border-left: 4px solid var(--warning);">
+  <h2><span class="tag tag-lead">LEAD / MID</span> Issue 3 — Parent kicked out of session when phone locks</h2>
+  <p class="subtle" style="margin-bottom:8px">Dave: "I was on call on a phone. And I left the app and then locked the phone that was on call. Now it says waiting for parent on the plinco session. Relaunched the app, yeah looks like I was kicked out of the session."</p>
+
+  <div class="impact impact-high">
+    <span>Safety impact</span>
+    <div class="impact-bar"><div class="impact-fill" style="background:var(--warning)"></div></div>
+    <span>High — parent loses coverage silently</span>
+  </div>
+
+  <p><strong>Root cause (multi-step race):</strong></p>
+  <ol style="padding-left:18px;margin:8px 0;font-size:13px;line-height:1.7">
+    <li>Parent locks phone → OS may throttle JS → <code>parentOnlineAt</code> beat goes stale (>90s)</li>
+    <li>Baby shows "Waiting for parent" → switches from 30s to 10s heartbeat</li>
+    <li>Parent relaunches → <code>loadOnCallResume()</code> restores <code>selectedSessionId</code></li>
+    <li><strong>Critical window:</strong> <code>mode</code> is briefly <code>'choosing'</code> (not yet <code>'on-call'</code>) while the session-discovery effect runs</li>
+    <li>In this window, <code>useActiveSessions</code> may return <code>[]</code> transiently (watcher remounted with fresh <code>mountedAt</code>, baby's only beat is pre-mount → pre-mount leftover → grace timer arms)</li>
+    <li>The <code>markedDeadAt</code> mode-guard (v0.16.x cycling fix) only skips the write while <code>mode === 'on-call'</code> — but mode is still <code>'choosing'</code> here → guard is inactive</li>
+    <li>If grace fires before fresh beat: <code>babyOnline = false</code> → <code>markedDeadAt</code> written → session filtered out → <code>clearOnCallResume()</code> called → parent permanently kicked out</li>
+  </ol>
+
+  <p><strong>Proposed fix (mid-level, ~20 lines):</strong></p>
+  <div class="code-block">
+<span class="code-ctx">// src/parent/onCallResume.ts — stamp resume time when loading</span>
+<span class="code-add">export async function loadOnCallResume(): Promise&lt;OnCallResume | null&gt; {</span>
+<span class="code-add">  const r = await readFromSecureStore();</span>
+<span class="code-add">  if (r) r.resumedAt = Date.now(); // NEW — stamp the moment of cold resume</span>
+<span class="code-add">  return r;</span>
+<span class="code-add">}</span>
+
+<span class="code-ctx">// app/(app)/parent.tsx — session-drop effect, add resume grace</span>
+<span class="code-add">const RESUME_GRACE_MS = 15_000; // 15s — enough for watcher to get a fresh beat</span>
+<span class="code-ctx">// In the session-drop effect that calls clearOnCallResume():</span>
+<span class="code-add">if (sessions.length === 0 && selectedSessionId) {</span>
+<span class="code-add">  const resume = onCallResumeRef.current;</span>
+<span class="code-add">  if (resume?.resumedAt && Date.now() - resume.resumedAt &lt; RESUME_GRACE_MS) {</span>
+<span class="code-add">    return; // still in resume grace window — don't clear yet</span>
+<span class="code-add">  }</span>
+<span class="code-add">  setSelectedSessionId(null);</span>
+<span class="code-add">  clearOnCallResume();</span>
+<span class="code-add">}</span>
+  </div>
+
+  <p><strong>Alternative approach:</strong> Hoist the mode rehydration to run synchronously before the session subscription re-fires, so <code>mode === 'on-call'</code> is true and the existing mode guard covers the resume window. More elegant but requires careful ordering of effects in <code>parent.tsx</code>.</p>
+
+  <p><strong>Test to write:</strong> <code>parentOnCall.test.ts</code> — assert the session-drop effect does NOT call <code>clearOnCallResume()</code> within <code>RESUME_GRACE_MS</code> of <code>loadOnCallResume()</code> resolving. Assert <code>RESUME_GRACE_MS</code> constant exists.</p>
+
+  <p><strong>Files to touch:</strong> <code>src/parent/onCallResume.ts</code>, <code>app/(app)/parent.tsx</code> (session-drop effect, resume grace window).</p>
+</div>
+
+<div class="card">
+  <h2><span class="tag tag-shipped">SHIPPED</span> Issue 4 — Auto-distress timer fires at wrong interval</h2>
+  <p class="subtle" style="margin-bottom:8px">Dave: "I had the auto-distress behavior set to 1 min but the call came at 5 min (the default). Is this a bug?"</p>
+
+  <p><strong>Root cause:</strong> <code>SleepTrainer</code> is a module-level singleton. Previous session left it in <code>'waiting'</code> or <code>'escalated'</code> state. On next session start, <code>onWakeSignal()</code> returns early (<code>state !== 'idle'</code>), new session's signals are ignored, and the old evaluate() tick fires using the previous session's <code>waitMinutes</code>. Banner showed "1 min" but the singleton was still running the old "5 min" timer.</p>
+
+  <div class="code-block">
+<span class="code-ctx">// src/sleepTraining/stateMachine.ts — new public method</span>
+<span class="code-add">reset() {</span>
+<span class="code-add">  // Wipe all singleton state before the new session bridge is wired.</span>
+<span class="code-add">  // Called by baby.tsx at the START of each session.</span>
+<span class="code-add">  this.cleanup();</span>
+<span class="code-add">}</span>
+
+<span class="code-ctx">// app/(app)/baby.tsx — in the [callId] configure effect</span>
+<span class="code-add">sleepTrainer.reset();   // ← NEW: clear stale singleton state first</span>
+<span class="code-ctx">sleepTrainer.configure({ ... }); // then wire the new session bridge</span>
+  </div>
+
+  <p><strong>Why order matters:</strong> If <code>configure()</code> came first, a late <code>onWakeSignal</code> from the old session could fire through the new session's bridge, crossing session boundaries.</p>
+
+  <p><strong>Tests:</strong> Third describe block in <code>babySessionResume.test.ts</code> — asserts <code>reset()</code> exists, calls <code>cleanup()</code>, and that <code>baby.tsx</code> calls <code>sleepTrainer.reset()</code> before <code>sleepTrainer.configure()</code>.</p>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<div class="section-label">Shipped: performance &amp; copy fixes</div>
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+
+<div class="card">
+  <h2><span class="tag tag-perf">PERF</span> Isolated elapsed timer — BabyMonitoring re-render elimination</h2>
+  <p class="subtle" style="margin-bottom:8px">The biggest single performance issue I found. This is the code change shipped in this review.</p>
+
+  <div class="impact impact-high">
+    <span>Impact</span>
+    <div class="impact-bar"><div class="impact-fill"></div></div>
+    <span>High — Pixel 3 runtime</span>
+  </div>
+
+  <p><strong>Problem:</strong> <code>setElapsed(Date.now() - startedAtRef.current)</code> fired every 1000ms inside BabyMonitoring, causing the entire 500+ line component to re-render. This includes:</p>
+  <ul>
+    <li>All Firestore snapshot watchers (re-evaluate closures)</li>
+    <li>Camera state, streaming state, WebRTC refs</li>
+    <li>Distress state machine, flock opacity, icon rotation shared values</li>
+    <li>The resume-warning modal, test-mode banner, answered-banner</li>
+  </ul>
+  <p>On a Pixel 3 (the target baby device), that's <strong>~60 unnecessary re-renders per minute</strong> of a complex component tree during the critical "baby is sleeping" monitoring phase.</p>
+
+  <p><strong>Fix:</strong> Extract the timer into a <code>React.memo</code> child component (<code>ElapsedTimer</code>). It receives <code>startedAtRef</code> (a stable ref), runs its own <code>setInterval</code>, and re-renders only itself. The AppState gap-correction in BabyMonitoring continues to work because it mutates the shared ref — the child reads it on the next tick.</p>
+
+  <div class="code-block">
+<span class="code-ctx">// Before: inside BabyMonitoring (re-renders EVERYTHING every second)</span>
+<span class="code-del">- const [elapsed, setElapsed] = useState(0);</span>
+<span class="code-del">- useEffect(() =&gt; {</span>
+<span class="code-del">-   const t = setInterval(() =&gt; setElapsed(Date.now() - startedAtRef.current), 1000);</span>
+<span class="code-del">-   return () =&gt; clearInterval(t);</span>
+<span class="code-del">- }, []);</span>
+
+<span class="code-ctx">// After: isolated React.memo component (re-renders only the timer text)</span>
+<span class="code-add">+ const ElapsedTimer = React.memo(function ElapsedTimer({</span>
+<span class="code-add">+   startedAtRef,</span>
+<span class="code-add">+ }: {</span>
+<span class="code-add">+   startedAtRef: React.MutableRefObject&lt;number&gt;;</span>
+<span class="code-add">+ }) {</span>
+<span class="code-add">+   const [elapsed, setElapsed] = useState(0);</span>
+<span class="code-add">+   useEffect(() =&gt; {</span>
+<span class="code-add">+     const t = setInterval(() =&gt; setElapsed(Date.now() - startedAtRef.current), 1000);</span>
+<span class="code-add">+     return () =&gt; clearInterval(t);</span>
+<span class="code-add">+   }, [startedAtRef]);</span>
+<span class="code-add">+   return &lt;Text style={timerStyle}&gt;{formatElapsed(elapsed)}&lt;/Text&gt;;</span>
+<span class="code-add">+ });</span>
+  </div>
+
+  <p class="subtle">Test updated: <code>babyAppState.test.ts</code> now asserts the ref ownership is in BabyMonitoring and the tick interval exists in the file (not scoped to the monitoring function body). All 43 suites / 525 tests green.</p>
+</div>
+
+<div class="card">
+  <h2><span class="tag tag-copy">COPY</span> CalibrationStep: differentiated pre/post tip</h2>
+  <p>Junior issue ⑥ — shipped. Both branches said "Room calibration will improve cry detection." The post-calibration branch now says:</p>
+  <div class="code-block">
+<span class="code-ctx">// Post-calibration tip (user already calibrated — confirm, don't pitch)</span>
+<span class="code-del">- &lt;Tip&gt;Room calibration will improve cry detection.&lt;/Tip&gt;</span>
+<span class="code-add">+ &lt;Tip&gt;Room calibrated — cry detection tuned to this space.&lt;/Tip&gt;</span>
+  </div>
+  <p class="subtle">Pre-calibration copy unchanged — still pitches the benefit correctly.</p>
+</div>
+
+<div class="card">
+  <h2><span class="tag tag-copy">COPY</span> ParentSetup skip alert: Title Case</h2>
+  <p>Junior issue ⑧ — shipped. The skip-confirmation alert's confirm action was lowercase <code>'continue'</code>. Now <code>'Continue'</code> — matches iOS/Android platform convention.</p>
+</div>
+
+<div class="card">
+  <h2><span class="tag tag-dedup">DEDUP</span> BabySetup: extracted DashboardEscape component</h2>
+  <p>The "Not using this phone to monitor? Go to the dashboard" pressable was <strong>copy-pasted identically</strong> at two locations in BabySetup — once in the pre-permission branch (line 352) and once in the ready branch (line 401). Same styles, same text, same onPress handler. If one drifts, they diverge silently.</p>
+  <p><strong>Fix:</strong> Extracted to a single <code>DashboardEscape</code> component. Both call sites now render <code>&lt;DashboardEscape onPress={() =&gt; safeBack(router)} /&gt;</code>.</p>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<div class="section-label">Architecture &amp; design inconsistencies flagged</div>
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+
+<div class="card">
+  <h2>Finding 1: Duplicated sleepy-mode state machine</h2>
+  <p>The baby.tsx and parent.tsx on-call screens <strong>independently implement the same sleepy-mode animation state machine:</strong></p>
+  <ul>
+    <li>Both track <code>flockVisible</code> / <code>flockMounted</code> with identical timeout logic</li>
+    <li>Both implement the pendulum rock animation with the same <code>iconRotation</code> shared value pattern</li>
+    <li>Both have <code>flockOpacity</code> with identical fade-in/fade-out durations (900ms / 600ms)</li>
+    <li>Parent.tsx even has a comment "Same split as baby.tsx"</li>
+  </ul>
+  <p>This is ~120 lines of duplicated animation state. If the architect wants to change the sleepy-mode timing (e.g., shorter fade-in for a more responsive feel), they'd have to change it in both files and hope the tests catch a drift.</p>
+
+  <div class="delegate">
+    <div class="delegate-header">
+      <div class="delegate-icon delegate-arch">A</div>
+      <strong style="font-size:13px">Architect: extract <code>useSleepyMode</code> hook</strong>
+    </div>
+    <p>A shared hook that takes <code>distressActive</code>, <code>animationsEnabled</code>, and timing constants, and returns <code>{ flockMounted, flockOverlayStyle, iconAnimatedStyle }</code>. Both screens call it identically. The baby-screen version adds the mic-intensity-driven PulseCircle distress tint on top.</p>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Finding 2: On-call hero copy says "Baby settling" permanently</h2>
+  <p>The on-call screen (parent.tsx line 1145) shows <strong>"Baby settling"</strong> as the hero text for all online states — whether the baby just started, has been quiet for 2 hours, or distress was just detected and cleared. The v0.16.14 change collapsed three sub-states into this single label, which fixed the jittery red-label problem but overcorrected.</p>
+
+  <div class="flow-row" style="margin-top:16px">
+    <div class="phone">
+      <div class="phone-label">On-call (current)</div>
+      <div class="phone-shell">
+        <span class="sheep-deco" style="top:25px;left:14px;font-size:12px">🐑</span>
+        <span class="sheep-deco" style="top:50px;right:18px;animation-delay:3s;font-size:10px">☁️</span>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+          <span style="font-size:13px">𝗣</span>
+          <span style="font-size:10px;color:var(--subtle)">Session <span style="font-weight:600;letter-spacing:2px;color:var(--text)">AB4X</span></span>
+        </div>
+        <div style="padding:12px;border-radius:12px;background:var(--tint-soft);border:1px solid var(--border);margin-bottom:8px">
+          <div style="font-size:12px;font-weight:600;color:var(--text);margin-bottom:2px">Baby settling</div>
+          <div style="font-size:10px;color:var(--subtle)">You will receive a call if your baby takes too long to settle.</div>
+        </div>
+        <div class="ui-btn btn-primary" style="font-size:10px">Put display to sleep</div>
+        <div style="font-size:9px;color:var(--subtle);margin-bottom:4px">We'll call after 5 min of distress.</div>
+        <div class="ui-btn btn-secondary" style="font-size:10px">Adjust the timer</div>
+        <div class="ui-btn btn-secondary" style="font-size:10px">Watch Video</div>
+      </div>
+    </div>
+
+    <div class="arrow">→</div>
+
+    <div class="phone">
+      <div class="phone-label">On-call (proposed)</div>
+      <div class="phone-shell">
+        <span class="sheep-deco" style="top:25px;left:14px;font-size:12px">🐑</span>
+        <span class="sheep-deco" style="top:50px;right:18px;animation-delay:3s;font-size:10px">☁️</span>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+          <span style="font-size:13px">𝗣</span>
+          <span style="font-size:10px;color:var(--subtle)">Session <span style="font-weight:600;letter-spacing:2px;color:var(--text)">AB4X</span></span>
+        </div>
+        <div style="padding:12px;border-radius:12px;background:var(--tint-soft);border:1px solid var(--border);margin-bottom:8px">
+          <div style="font-size:12px;font-weight:600;color:var(--text);margin-bottom:2px">You're all set</div>
+          <div style="font-size:10px;color:var(--subtle)">We'll call you if your baby wakes up.</div>
+        </div>
+        <div class="ui-btn btn-primary" style="font-size:10px">Put display to sleep</div>
+        <div style="font-size:9px;color:var(--subtle);margin-bottom:4px">We'll call after 5 min of distress.</div>
+        <div class="ui-btn btn-secondary" style="font-size:10px">Adjust the timer</div>
+        <div class="ui-btn btn-secondary" style="font-size:10px">Watch Video</div>
+      </div>
+    </div>
+  </div>
+
+  <p style="margin-top:12px">"Baby settling" implies the baby is actively in distress and calming down — misleading at 2am when everything is quiet. The DEV_CONTEXT already describes the target copy: <em>"You're all set"</em> when baby is online and no distress is active. Only show "Baby settling" during the 5-second settling window after mode entry or after a distress pulse.</p>
+
+  <div class="delegate">
+    <div class="delegate-header">
+      <div class="delegate-icon delegate-lead">L</div>
+      <strong style="font-size:13px">Lead: copy decision — hero text branching</strong>
+    </div>
+    <p>The v0.16.14 collapse was right to kill the jittery red label. But it went too far. Proposal: <code>settling ? "Baby settling" : "You're all set"</code>. The <code>settling</code> flag (5s after mode entry or after distress) already exists. This is a 2-line change once the copy is decided.</p>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Finding 3: Welcome screen buttons don't communicate roles</h2>
+  <p>"Start Plinco Session" / "Join Plinco Session" are confusingly similar to a new user. Both sound like parent actions. The DEV_CONTEXT says the labels should be:</p>
+  <ul>
+    <li><strong>"Use as the baby monitor"</strong> — makes this phone the camera device</li>
+    <li><strong>"Join a Plinco session"</strong> — connect as a parent to an active session</li>
+  </ul>
+  <p>This has been flagged multiple times (junior's issue ②, DEV_CONTEXT itself) but never shipped. It's also the first thing a new user sees after FTUE.</p>
+
+  <div class="flow-row" style="margin-top:16px">
+    <div class="phone">
+      <div class="phone-label">Welcome (current)</div>
+      <div class="phone-shell">
+        <span class="sheep-deco" style="top:35px;left:18px;font-size:16px">🐑</span>
+        <span class="sheep-deco" style="top:80px;right:22px;animation-delay:2s;font-size:12px">☁️</span>
+        <div style="flex:1;display:flex;flex-direction:column;justify-content:center;padding-bottom:20px">
+          <div style="font-size:11px;color:var(--subtle);text-align:center;margin-bottom:14px">Good evening, Dave</div>
+          <div class="ui-btn btn-secondary">Start Plinco Session</div>
+          <div class="ui-btn btn-secondary">Join Plinco Session</div>
+        </div>
+        <div>
+          <div class="ui-btn btn-ghost" style="font-size:11px">Grow your village</div>
+          <div class="ui-btn btn-ghost" style="font-size:11px">Settings</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="arrow">→</div>
+
+    <div class="phone">
+      <div class="phone-label">Welcome (proposed)</div>
+      <div class="phone-shell">
+        <span class="sheep-deco" style="top:35px;left:18px;font-size:16px">🐑</span>
+        <span class="sheep-deco" style="top:80px;right:22px;animation-delay:2s;font-size:12px">☁️</span>
+        <div style="flex:1;display:flex;flex-direction:column;justify-content:center;padding-bottom:20px">
+          <div style="font-size:11px;color:var(--subtle);text-align:center;margin-bottom:14px">Good evening, Dave</div>
+          <div class="ui-btn btn-secondary">Use as the baby monitor</div>
+          <div class="ui-btn btn-secondary">Join a Plinco session</div>
+        </div>
+        <div>
+          <div class="ui-btn btn-ghost" style="font-size:11px">Grow your village</div>
+          <div class="ui-btn btn-ghost" style="font-size:11px">Settings</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="delegate">
+    <div class="delegate-header">
+      <div class="delegate-icon delegate-lead">L</div>
+      <strong style="font-size:13px">Lead: ship the button relabel (it's been approved in DEV_CONTEXT)</strong>
+    </div>
+    <p>Two string changes in <code>app/(app)/index.tsx</code> lines 161 and 186. Tests will need updating if any pin the current labels.</p>
+    <p style="margin-top:8px;font-size:12px;color:var(--success);font-weight:600">✅ Shipped in v0.16.16</p>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Finding 4: Wordy session tip on BabySetup</h2>
+  <p>Junior issue ⑦. The current tip reads:</p>
+  <div class="code-block">
+<span class="code-del">Plinco sessions may be joined by authorized villagers or users logged into dave@email.com</span>
+  </div>
+  <p>"Authorized villagers" and "users logged into your account" describe the same people. The email exposure is also unnecessary noise on a setup screen. Simpler:</p>
+  <div class="code-block">
+<span class="code-add">Anyone in your village can join this session.</span>
+  </div>
+  <p class="subtle">Not shipped — this touches the session-access mental model which the architect may want to weigh in on (especially with monetization village-size gating coming in v0.17).</p>
+
+  <div class="delegate">
+    <div class="delegate-header">
+      <div class="delegate-icon delegate-arch">A</div>
+      <strong style="font-size:13px">Architect: session-access copy + village-size gate wording</strong>
+    </div>
+    <p>This tip is the natural place to surface the upgrade prompt when the free 2-device cap is hit. The copy should be settled now so the v0.17 monetization entry point has a clean foundation. "Anyone in your village" is accurate for paid; free needs "Up to 2 devices in your village" or similar.</p>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<div class="section-label">Monetization workflow — v0.17 entry points</div>
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+
+<div class="card">
+  <h2>Where the upgrade prompt naturally appears</h2>
+  <p class="subtle" style="margin-bottom:12px">The village-size gate (free = 2 devices, paid = unlimited) has 3 natural trigger points in the existing UI. No new screens needed — just conditional copy.</p>
+
+  <div class="flow-row" style="margin-top:16px">
+    <div class="phone">
+      <div class="phone-label">Trigger 1: Grow your village</div>
+      <div class="phone-shell">
+        <div class="sp"></div>
+        <div class="sp"></div>
+        <div style="font-size:14px;font-weight:500;color:var(--text);margin-bottom:8px">Grow your village</div>
+        <div style="font-size:10px;color:var(--subtle);margin-bottom:12px">Your village has 2 devices (free limit).</div>
+        <div class="ui-btn btn-primary" style="font-size:11px">Upgrade to add more</div>
+        <div style="font-size:9px;color:var(--subtle);text-align:center;margin-top:4px">Unlimited devices · remote access</div>
+        <div class="sp"></div>
+        <div style="border-top:1px solid var(--border);padding-top:8px">
+          <div class="ui-status-row"><div class="dot dot-green"></div><span>Dave's iPhone</span></div>
+          <div class="ui-status-row"><div class="dot dot-green"></div><span>Old Pixel 3</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="phone">
+      <div class="phone-label">Trigger 2: 3rd device join attempt</div>
+      <div class="phone-shell">
+        <div class="sp"></div>
+        <div class="sp"></div>
+        <div style="font-size:14px;font-weight:500;color:var(--text);margin-bottom:4px">Village full</div>
+        <div style="font-size:10px;color:var(--subtle);margin-bottom:12px;line-height:1.5">Your free plan supports 2 devices. Upgrade to add grandma's iPad, a second parent, or more baby monitors.</div>
+        <div class="ui-btn btn-primary" style="font-size:11px">See upgrade options</div>
+        <div class="ui-btn btn-ghost" style="font-size:10px">Not now</div>
+      </div>
+    </div>
+
+    <div class="phone">
+      <div class="phone-label">Trigger 3: Off-network attempt</div>
+      <div class="phone-shell">
+        <div class="sp"></div>
+        <div class="sp"></div>
+        <div style="font-size:14px;font-weight:500;color:var(--text);margin-bottom:4px">Remote access</div>
+        <div style="font-size:10px;color:var(--subtle);margin-bottom:12px;line-height:1.5">Free Plinco works on your home network. Upgrade for remote monitoring when you're away.</div>
+        <div class="ui-tip" style="font-size:9px">🐕 Your puppies guard the house while you're out.</div>
+        <div class="ui-btn btn-primary" style="font-size:11px">Upgrade for remote access</div>
+        <div class="ui-btn btn-ghost" style="font-size:10px">Stay on local</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="delegate">
+    <div class="delegate-header">
+      <div class="delegate-icon delegate-arch">A</div>
+      <strong style="font-size:13px">Architect: design the upgrade flow + RevenueCat integration</strong>
+    </div>
+    <p>The "puppies / pupgrade" brand language needs to land here. The local-vs-remote split (free = P2P on LAN, paid = Cloudflare TURN for off-network) is the cost-aligned monetization lever from the June 3 decision. Entry points 1 and 2 are village-size gates (pure Firestore check); entry point 3 is a network-topology check (are baby + parent on the same LAN?). The architect should spec which check happens where and what RevenueCat entitlement string to gate on.</p>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<div class="section-label">Automation proposal</div>
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+
+<div class="card">
+  <h2>Pre-commit: baby-screen animation guard</h2>
+  <p>The "old hardware first" principle has a specific crash history: Reanimated worklets on BabySetup/BabyMonitoring crashed Pixel 3 in v0.10.11. The current prevention is humans reading DEV_CONTEXT. That's fragile.</p>
+
+  <h3>Proposed hook addition (pre-commit)</h3>
+  <div class="code-block">
+<span class="code-ctx"># In the existing pre-commit hook, after tsc + jest:</span>
+<span class="code-add">BABY_DANGER_PATTERNS="useAnimatedScrollHandler|transformOrigin|runOnUI|scrollTo"</span>
+<span class="code-add">if git diff --cached --name-only | grep -q 'baby\.tsx'; then</span>
+<span class="code-add">  MONITORING=$(sed -n '/function BabyMonitoring/,/^function /p' app/\(app\)/baby.tsx)</span>
+<span class="code-add">  if echo "$MONITORING" | grep -qE "$BABY_DANGER_PATTERNS"; then</span>
+<span class="code-add">    echo "⚠️  baby.tsx BabyMonitoring contains animation patterns that crashed Pixel 3."</span>
+<span class="code-add">    echo "   Patterns: $BABY_DANGER_PATTERNS"</span>
+<span class="code-add">    echo "   See DEV_CONTEXT.md § 'Old hardware first'"</span>
+<span class="code-add">    exit 1</span>
+<span class="code-add">  fi</span>
+<span class="code-add">fi</span>
+  </div>
+
+  <p class="subtle">This catches the class of crash that killed v0.10.11 at commit time, not at device-test time. The current PulseCircle + icon-rock animations are safe (they use useSharedValue + withTiming, not scroll-driven transforms).</p>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<div class="section-label">Summary of all changes</div>
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+
+<div class="card">
+  <h2>What shipped in this review</h2>
+  <table style="width:100%;font-size:13px;border-collapse:collapse">
+    <thead>
+      <tr style="border-bottom:2px solid var(--border);text-align:left">
+        <th style="padding:8px 12px 8px 0">Change</th>
+        <th style="padding:8px 12px">File</th>
+        <th style="padding:8px 0">Type</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:8px 12px 8px 0">Isolated ElapsedTimer (React.memo)</td>
+        <td style="padding:8px 12px"><code>baby.tsx</code></td>
+        <td style="padding:8px 0"><span class="tag tag-perf">PERF</span></td>
+      </tr>
+      <tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:8px 12px 8px 0">CalibrationStep post-cal tip copy</td>
+        <td style="padding:8px 12px"><code>baby.tsx</code></td>
+        <td style="padding:8px 0"><span class="tag tag-copy">COPY</span></td>
+      </tr>
+      <tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:8px 12px 8px 0">DashboardEscape component extraction</td>
+        <td style="padding:8px 12px"><code>baby.tsx</code></td>
+        <td style="padding:8px 0"><span class="tag tag-dedup">DEDUP</span></td>
+      </tr>
+      <tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:8px 12px 8px 0">Skip alert 'continue' → 'Continue'</td>
+        <td style="padding:8px 12px"><code>parent.tsx</code></td>
+        <td style="padding:8px 0"><span class="tag tag-copy">COPY</span></td>
+      </tr>
+      <tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:8px 12px 8px 0">Test updated for isolated timer</td>
+        <td style="padding:8px 12px"><code>babyAppState.test.ts</code></td>
+        <td style="padding:8px 0"><span class="tag tag-perf">PERF</span></td>
+      </tr>
+      <tr style="border-bottom:1px solid var(--border);background:#F6FFF9">
+        <td style="padding:8px 12px 8px 0"><strong>Safety:</strong> New <code>babySessionResume.ts</code> + WarningModal headline/body/cta props</td>
+        <td style="padding:8px 12px"><code>baby.tsx · babySessionResume.ts</code></td>
+        <td style="padding:8px 0"><span class="tag tag-shipped">SAFETY</span></td>
+      </tr>
+      <tr style="border-bottom:1px solid var(--border);background:#F6FFF9">
+        <td style="padding:8px 12px 8px 0"><strong>Safety:</strong> sleepTrainer.reset() before configure()</td>
+        <td style="padding:8px 12px"><code>baby.tsx · stateMachine.ts</code></td>
+        <td style="padding:8px 0"><span class="tag tag-shipped">SAFETY</span></td>
+      </tr>
+      <tr style="border-bottom:1px solid var(--border);background:#F6FFF9">
+        <td style="padding:8px 12px 8px 0"><strong>Safety:</strong> Test-mode three-way label ternary</td>
+        <td style="padding:8px 12px"><code>baby.tsx</code></td>
+        <td style="padding:8px 0"><span class="tag tag-shipped">SAFETY</span></td>
+      </tr>
+      <tr style="background:#F6FFF9">
+        <td style="padding:8px 12px 8px 0"><strong>Safety:</strong> 3 new test files / babyAppState updated</td>
+        <td style="padding:8px 12px"><code>babySessionResume.test.ts · babyTestMode.test.ts · babySleepyMode.test.ts</code></td>
+        <td style="padding:8px 0"><span class="tag tag-shipped">SAFETY</span></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p style="margin-top:12px;font-size:13px;color:var(--success);font-weight:500">
+    ✅ 54 suites / 691 tests green · tsc clean · no regressions
+  </p>
+</div>
+
+<div class="card">
+  <h2>Delegation summary</h2>
+  <table style="width:100%;font-size:13px;border-collapse:collapse">
+    <thead>
+      <tr style="border-bottom:2px solid var(--border);text-align:left">
+        <th style="padding:8px 12px 8px 0">Item</th>
+        <th style="padding:8px 12px">Owner</th>
+        <th style="padding:8px 0">Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:8px 12px 8px 0"><strong>Safety Issue 3:</strong> Parent kicked out on lock — RESUME_GRACE_MS + session-drop guard</td>
+        <td style="padding:8px 12px"><span class="tag tag-lead">MID / LEAD</span></td>
+        <td style="padding:8px 0;color:var(--warning)">⚠️ Open</td>
+      </tr>
+      <tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:8px 12px 8px 0">Extract <code>useSleepyMode</code> hook (120 lines duplicated in baby + parent)</td>
+        <td style="padding:8px 12px"><span class="tag tag-arch">ARCHITECT</span></td>
+        <td style="padding:8px 0;color:var(--warning)">⚠️ Deferred to post-v0.16 merge</td>
+      </tr>
+      <tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:8px 12px 8px 0">On-call hero: "Baby settling" → <code>settling||distressActive ? … : 'All quiet'</code></td>
+        <td style="padding:8px 12px"><span class="tag tag-lead">LEAD</span></td>
+        <td style="padding:8px 0;color:var(--success)">✅ Shipped v0.16.16</td>
+      </tr>
+      <tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:8px 12px 8px 0">Welcome button relabel</td>
+        <td style="padding:8px 12px"><span class="tag tag-lead">LEAD</span></td>
+        <td style="padding:8px 0;color:var(--success)">✅ Shipped v0.16.16</td>
+      </tr>
+      <tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:8px 12px 8px 0">Session tip copy + village-size gate wording</td>
+        <td style="padding:8px 12px"><span class="tag tag-arch">ARCHITECT</span></td>
+        <td style="padding:8px 0;color:var(--success)">✅ Shipped v0.16.16</td>
+      </tr>
+      <tr>
+        <td style="padding:8px 12px 8px 0">RevenueCat integration + upgrade flow design</td>
+        <td style="padding:8px 12px"><span class="tag tag-arch">ARCHITECT</span></td>
+        <td style="padding:8px 0;color:var(--warning)">⚠️ v0.17.1</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+</body>
+</html>
