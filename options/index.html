@@ -117,7 +117,8 @@
 <body>
 <div class="wrap">
   <h1>FIG calls — breakeven by strike</h1>
-  <p class="sub">Strike + bid/ask mid at each day's close. The dashed line is FIG itself.</p>
+  <p class="sub">What FIG has to reach by expiry for the call to break even — the strike plus what
+    the call costs. Each point is one day's close; the orange diamond is FIG itself.</p>
   <div class="meta" id="meta"></div>
   <div class="seg" id="metric" role="group" aria-label="Price basis">
     <button data-m="mid" class="on">Bid/ask mid</button>
@@ -393,7 +394,8 @@ async function main() {
   document.getElementById("meta").innerHTML =
     `<div class="pill">FIG close <b>${money(spot)}</b></div>` +
     `<div class="pill">as of <b>${last}</b></div>` +
-    `<div class="pill"><b>${dates.length}</b> trading day${dates.length === 1 ? "" : "s"} collected</div>`;
+    `<div class="pill"><b>${dates.length}</b> trading day${dates.length === 1 ? "" : "s"} collected</div>` +
+    `<div class="pill">updates after each US close</div>`;
 
   const exps = [...new Set(rows.map(r => r.expiration))].sort();
   const host = document.getElementById("charts");
