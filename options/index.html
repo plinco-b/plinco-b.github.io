@@ -90,10 +90,22 @@
   .tip .r i { width: 9px; height: 9px; border-radius: 2px; flex: none; }
   .tip .r span { color: var(--ink-2); }
   .tip .r b { margin-left: auto; color: var(--ink); font-weight: 600; }
+  .tip .r b em { color: var(--muted); font-weight: 400; font-style: normal; margin-left: 5px; }
+
+  .controls {
+    display: flex; flex-wrap: wrap; align-items: center;
+    gap: 10px 16px; margin: 0 0 22px;
+  }
+  .chk {
+    display: inline-flex; align-items: center; gap: 7px;
+    font-size: 13px; color: var(--ink-2); cursor: pointer; user-select: none;
+  }
+  .chk:hover { color: var(--ink); }
+  .chk input { accent-color: var(--spot); width: 14px; height: 14px; cursor: pointer; }
 
   .seg {
     display: inline-flex; background: var(--surface); border: 1px solid var(--hair);
-    border-radius: 9px; padding: 3px; gap: 3px; margin: 0 0 22px;
+    border-radius: 9px; padding: 3px; gap: 3px;
   }
   .seg button {
     appearance: none; border: 0; background: transparent; cursor: pointer;
@@ -120,9 +132,12 @@
   <p class="sub">What FIG has to reach by expiry for the call to break even — the strike plus what
     the call costs. Each point is one day's close; the orange diamond is FIG itself.</p>
   <div class="meta" id="meta"></div>
-  <div class="seg" id="metric" role="group" aria-label="Price basis">
-    <button data-m="mid" class="on">Bid/ask mid</button>
-    <button data-m="last">Last trade</button>
+  <div class="controls">
+    <div class="seg" id="metric" role="group" aria-label="Price basis">
+      <button data-m="mid" class="on">Bid/ask mid</button>
+      <button data-m="last">Last trade</button>
+    </div>
+    <label class="chk"><input type="checkbox" id="bars" checked> Show bid/ask range</label>
   </div>
   <div id="charts"><p class="empty">Loading…</p></div>
   <div id="caveat"></div>
@@ -200,7 +215,10 @@ function niceTicks(lo, hi, count) {
   const step = [1, 2, 2.5, 5, 10].map(m => m * mag).find(s => s >= raw) || 10 * mag;
   const ticks = [];
   for (let t = Math.ceil(lo / step) * step; t <= hi + 1e-9; t += step) ticks.push(+t.toFixed(6));
-  return ticks;
+  // Label with enough precision to be true: a 2.5 step rounded to whole dollars
+  // prints gridlines at 22.5/27.5 as "$23"/"$28", misstating the scale by 50c.
+  const decimals = Number.isInteger(step) ? 0 : Number.isInteger(step * 10) ? 1 : 2;
+  return { ticks, label: t => "$" + t.toFixed(decimals) };
 }
 
 const W = 960, H = 500, M = { t: 16, r: 116, b: 40, l: 58 };
@@ -213,7 +231,7 @@ function valueOf(r, metric) {
   return r.breakeven;
 }
 
-function renderChart(exp, rows, metric, axisDates, spotAt) {
+function renderChart(exp, rows, metric, axisDates, spotAt, showBars) {
   // The axis spans every trading day we have a close for, not just the days
   // with option quotes -- Yahoo serves the chain live only, so a day the
   // collector missed has a stock price but no strikes. Those become gaps in
@@ -227,6 +245,14 @@ function renderChart(exp, rows, metric, axisDates, spotAt) {
   const series = strikes.map((s, i) => ({
     key: fmtStrike(s), color: colors[i % colors.length],
     pts: dates.map(d => valueOf(byKey.get(d + "|" + s), metric)),
+    // The whole quoted range for that strike: you can only buy at the ask and
+    // only sell at the bid, so breakeven genuinely lies anywhere in here. Same
+    // band in both modes -- under "last" it shows whether the print is even
+    // inside the current market.
+    band: dates.map(d => {
+      const r = byKey.get(d + "|" + s);
+      return r && r.ask > 0 ? { lo: r.strike + r.bid, hi: r.strike + r.ask } : null;
+    }),
     // Marks a print carried over from an earlier session: drawn hollow so a
     // two-day-old trade can't read as that day's close.
     stale: dates.map(d => {
@@ -240,7 +266,11 @@ function renderChart(exp, rows, metric, axisDates, spotAt) {
   };
   const all = [...series, spotSeries];
 
-  const vals = all.flatMap(s => s.pts).filter(v => v != null);
+  // The scale has to cover the bars too, or a wide quote gets silently clipped
+  // and the chart understates exactly the uncertainty it is meant to show.
+  const vals = all.flatMap(s => s.pts).filter(v => v != null).concat(
+    showBars ? series.flatMap(s => s.band).filter(Boolean).flatMap(b => [b.lo, b.hi]) : []
+  );
   let lo = Math.min(...vals), hi = Math.max(...vals);
   const padY = (hi - lo || 1) * 0.10;
   lo -= padY; hi += padY;
@@ -250,13 +280,13 @@ function renderChart(exp, rows, metric, axisDates, spotAt) {
   const X = i => dates.length === 1 ? M.l + iw / 2 : M.l + (i / (dates.length - 1)) * iw;
   const Y = v => M.t + ih - ((v - lo) / (hi - lo)) * ih;
 
-  const ticks = niceTicks(lo, hi, 6);
+  const { ticks, label: tickLabel } = niceTicks(lo, hi, 6);
   const grid = cssVar("--grid"), axis = cssVar("--axis"), muted = cssVar("--muted");
 
   let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Breakeven by strike for FIG calls expiring ${exp}">`;
   ticks.forEach(t => {
     svg += `<line x1="${M.l}" x2="${M.l + iw}" y1="${Y(t).toFixed(1)}" y2="${Y(t).toFixed(1)}" stroke="${grid}" stroke-width="1"/>`;
-    svg += `<text x="${M.l - 10}" y="${(Y(t) + 4).toFixed(1)}" fill="${muted}" font-size="12" text-anchor="end">$${t.toFixed(0)}</text>`;
+    svg += `<text x="${M.l - 10}" y="${(Y(t) + 4).toFixed(1)}" fill="${muted}" font-size="12" text-anchor="end">${tickLabel(t)}</text>`;
   });
   svg += `<line x1="${M.l}" x2="${M.l}" y1="${M.t}" y2="${M.t + ih}" stroke="${axis}" stroke-width="1"/>`;
   svg += `<line x1="${M.l}" x2="${M.l + iw}" y1="${M.t + ih}" y2="${M.t + ih}" stroke="${axis}" stroke-width="1"/>`;
@@ -266,6 +296,24 @@ function renderChart(exp, rows, metric, axisDates, spotAt) {
     if (i % stride && i !== dates.length - 1) return;
     svg += `<text x="${X(i).toFixed(1)}" y="${H - M.b + 20}" fill="${muted}" font-size="12" text-anchor="middle">${fmtDay(d)}</text>`;
   });
+
+  // Bid/ask range, drawn behind everything. Deliberately not dodged apart: the
+  // liquid strikes render as tight ticks while the dead ones smear into an
+  // overlapping haze, and that contrast is the honest reading of the data.
+  if (showBars) {
+    series.forEach(s => {
+      s.band.forEach((b, i) => {
+        if (!b || s.pts[i] == null) return;
+        const x = X(i), yl = Y(b.lo), yh = Y(b.hi);
+        if (Math.abs(yl - yh) < 1.2) return;   // spread too tight to draw
+        svg += `<g stroke="${s.color}" stroke-opacity="0.45" stroke-width="1.5" stroke-linecap="round">`
+             + `<line x1="${x.toFixed(1)}" y1="${yh.toFixed(1)}" x2="${x.toFixed(1)}" y2="${yl.toFixed(1)}"/>`
+             + `<line x1="${(x - 3.5).toFixed(1)}" y1="${yh.toFixed(1)}" x2="${(x + 3.5).toFixed(1)}" y2="${yh.toFixed(1)}"/>`
+             + `<line x1="${(x - 3.5).toFixed(1)}" y1="${yl.toFixed(1)}" x2="${(x + 3.5).toFixed(1)}" y2="${yl.toFixed(1)}"/>`
+             + `</g>`;
+      });
+    });
+  }
 
   all.forEach(s => {
     // Join consecutive observations pair by pair. A pair that skips days we
@@ -357,7 +405,10 @@ function wireHover(card, ctx) {
     [...all].reverse().forEach(s => {
       const v = s.pts[best];
       if (v == null) return;
-      html += `<div class="r"><i style="background:${s.color}"></i><span>${s.key}</span><b>${money(v)}</b></div>`;
+      const b = s.band && s.band[best];
+      const err = b ? (b.hi - b.lo) / 2 : 0;
+      html += `<div class="r"><i style="background:${s.color}"></i><span>${s.key}</span>`
+            + `<b>${money(v)}${err > 0.005 ? `<em>±${err.toFixed(2)}</em>` : ""}</b></div>`;
     });
     tip.innerHTML = html;
     tip.style.opacity = "1";
@@ -418,6 +469,7 @@ async function main() {
   const host = document.getElementById("charts");
 
   function render(metric) {
+    const showBars = document.getElementById("bars").checked;
     host.innerHTML = "";
     exps.forEach(exp => {
       const block = rows.filter(r => r.expiration === exp);
@@ -426,11 +478,12 @@ async function main() {
 
       const card = document.createElement("section");
       card.className = "card";
-      const ctx = renderChart(exp, block, metric, axisDates, spotAt);
+      const ctx = renderChart(exp, block, metric, axisDates, spotAt, showBars);
       card.innerHTML =
         `<h2>Expiring ${exp}</h2>` +
         `<p class="note">${bStrikes.length} strikes · ${bDates.length} day${bDates.length === 1 ? "" : "s"} of quotes` +
         `${bDates.length === 1 ? " · one close so far, so each strike is a single point" : ""}` +
+        `${showBars ? " · whisker spans strike+bid to strike+ask" : ""}` +
         `${gaps.length ? " · dotted span = days with no quotes" : ""}` +
         `${metric === "last" ? " · hollow marker = the last trade is older than that day" : ""}</p>` +
         `<div class="chart-scroll">${ctx.svg}</div>` +
@@ -450,9 +503,10 @@ async function main() {
       const wide = today.map(r => ({ ...r, err: r.spread / 2 }))
         .filter(r => r.err > 0.5).sort((a, b) => b.err - a.err);
       if (wide.length) {
-        html = `<div class="caveat"><b>Half the bid/ask spread is the error bar on every point.</b> ` +
-          `Mid is the midpoint of two quotes, not a record of a sale — when the spread is dollars wide, ` +
-          `nothing is splitting that difference. On ${last}:` +
+        html = `<div class="caveat"><b>The whiskers are the bid/ask spread.</b> ` +
+          `You can only buy at the ask and only sell at the bid, so breakeven genuinely lies ` +
+          `anywhere in that range — mid is the midpoint of two quotes, not a record of a sale. ` +
+          `Widest on ${last}:` +
           `<ul>${wide.map(r =>
             `<li>strike ${fmtStrike(r.strike)} — ${money(r.breakeven)} ± ${r.err.toFixed(2)} ` +
             `(bid ${r.bid.toFixed(2)} / ask ${r.ask.toFixed(2)}, open interest ${r.open_interest.toLocaleString()})</li>`
@@ -478,12 +532,15 @@ async function main() {
   }
 
   const seg = document.getElementById("metric");
+  const current = () => seg.querySelector("button.on").dataset.m;
+
   seg.addEventListener("click", ev => {
     const btn = ev.target.closest("button[data-m]");
     if (!btn) return;
     [...seg.children].forEach(b => b.classList.toggle("on", b === btn));
     render(btn.dataset.m);
   });
+  document.getElementById("bars").addEventListener("change", () => render(current()));
 
   render("mid");
 
