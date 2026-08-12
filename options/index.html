@@ -213,13 +213,16 @@ function valueOf(r, metric) {
   return r.breakeven;
 }
 
-function renderChart(exp, rows, metric) {
-  const dates = [...new Set(rows.map(r => r.date))].sort();
+function renderChart(exp, rows, metric, axisDates, spotAt) {
+  // The axis spans every trading day we have a close for, not just the days
+  // with option quotes -- Yahoo serves the chain live only, so a day the
+  // collector missed has a stock price but no strikes. Those become gaps in
+  // the strike lines rather than a silently compressed axis.
+  const dates = axisDates;
   const strikes = [...new Set(rows.map(r => r.strike))].sort((a, b) => a - b);
   const colors = ramp();
 
   const byKey = new Map(rows.map(r => [r.date + "|" + r.strike, r]));
-  const spotAt = new Map(rows.map(r => [r.date, r.spot_close]));
 
   const series = strikes.map((s, i) => ({
     key: fmtStrike(s), color: colors[i % colors.length],
@@ -265,19 +268,20 @@ function renderChart(exp, rows, metric) {
   });
 
   all.forEach(s => {
-    const seg = [];
-    let cur = [];
-    s.pts.forEach((v, i) => {
-      if (v == null) { if (cur.length) seg.push(cur); cur = []; }
-      else cur.push(`${X(i).toFixed(1)},${Y(v).toFixed(1)}`);
-    });
-    if (cur.length) seg.push(cur);
-    seg.forEach(pts => {
-      if (pts.length > 1) {
-        svg += `<polyline points="${pts.join(" ")}" fill="none" stroke="${s.color}" stroke-width="2"`
-             + `${s.dashed ? ' stroke-dasharray="6 3"' : ""} stroke-linejoin="round" stroke-linecap="round"/>`;
-      }
-    });
+    // Join consecutive observations pair by pair. A pair that skips days we
+    // never observed is drawn faint and dotted: the trend stays readable
+    // without asserting a path through days that were never collected.
+    const seen = s.pts.map((v, i) => (v == null ? -1 : i)).filter(i => i >= 0);
+    for (let k = 1; k < seen.length; k++) {
+      const a = seen[k - 1], b = seen[k];
+      const bridged = b - a > 1;
+      const style = s.dashed ? ' stroke-dasharray="6 3"'
+                  : bridged  ? ' stroke-dasharray="1 5" stroke-opacity="0.5"'
+                  : "";
+      svg += `<line x1="${X(a).toFixed(1)}" y1="${Y(s.pts[a]).toFixed(1)}" `
+           + `x2="${X(b).toFixed(1)}" y2="${Y(s.pts[b]).toFixed(1)}" `
+           + `stroke="${s.color}" stroke-width="2" stroke-linecap="round"${style}/>`;
+    }
     s.pts.forEach((v, i) => {
       if (v == null) return;
       const x = X(i), y = Y(v);
@@ -372,14 +376,18 @@ function wireHover(card, ctx) {
 }
 
 async function main() {
-  let rows;
+  const grab = async name => {
+    const res = await fetch(name, { cache: "no-store" });
+    if (!res.ok) throw new Error(`${name}: ${res.status}`);
+    return parseCSV(await res.text());
+  };
+
+  let rows, spotRows;
   try {
-    const res = await fetch("chain.csv", { cache: "no-store" });
-    if (!res.ok) throw new Error(res.status);
-    rows = parseCSV(await res.text());
+    [rows, spotRows] = await Promise.all([grab("chain.csv"), grab("spot.csv")]);
   } catch (e) {
     document.getElementById("charts").innerHTML =
-      `<p class="empty">Couldn't load <code>chain.csv</code> (${e.message}).</p>`;
+      `<p class="empty">Couldn't load the data (${e.message}).</p>`;
     return;
   }
   if (!rows.length) {
@@ -389,12 +397,21 @@ async function main() {
 
   const dates = [...new Set(rows.map(r => r.date))].sort();
   const last = dates[dates.length - 1];
-  const spot = rows.find(r => r.date === last).spot_close;
+
+  // The stock's history is retrievable retroactively, so the reference line
+  // covers every trading day since tracking began -- including days the
+  // collector missed, which show as gaps in the strike lines.
+  const spotAt = new Map(spotRows.map(r => [r.date, r.close]));
+  const axisDates = spotRows.map(r => r.date).filter(d => d >= dates[0]).sort();
+  const lastClose = axisDates[axisDates.length - 1];
+  const spot = spotAt.get(lastClose);
+  const gaps = axisDates.filter(d => !dates.includes(d));
 
   document.getElementById("meta").innerHTML =
     `<div class="pill">FIG close <b>${money(spot)}</b></div>` +
-    `<div class="pill">as of <b>${last}</b></div>` +
-    `<div class="pill"><b>${dates.length}</b> trading day${dates.length === 1 ? "" : "s"} collected</div>` +
+    `<div class="pill">as of <b>${lastClose}</b></div>` +
+    `<div class="pill"><b>${dates.length}</b> day${dates.length === 1 ? "" : "s"} of quotes` +
+    `${gaps.length ? ` · <b style="color:var(--warn)">${gaps.length} missed</b>` : ""}</div>` +
     `<div class="pill">updates after each US close</div>`;
 
   const exps = [...new Set(rows.map(r => r.expiration))].sort();
@@ -409,11 +426,12 @@ async function main() {
 
       const card = document.createElement("section");
       card.className = "card";
-      const ctx = renderChart(exp, block, metric);
+      const ctx = renderChart(exp, block, metric, axisDates, spotAt);
       card.innerHTML =
         `<h2>Expiring ${exp}</h2>` +
-        `<p class="note">${bStrikes.length} strikes · ${bDates.length} day${bDates.length === 1 ? "" : "s"}` +
+        `<p class="note">${bStrikes.length} strikes · ${bDates.length} day${bDates.length === 1 ? "" : "s"} of quotes` +
         `${bDates.length === 1 ? " · one close so far, so each strike is a single point" : ""}` +
+        `${gaps.length ? " · dotted span = days with no quotes" : ""}` +
         `${metric === "last" ? " · hollow marker = the last trade is older than that day" : ""}</p>` +
         `<div class="chart-scroll">${ctx.svg}</div>` +
         `<details><summary>Show the numbers</summary>${tableFor(block, bDates, bStrikes, metric)}</details>`;
@@ -469,8 +487,13 @@ async function main() {
 
   render("mid");
 
-  document.getElementById("foot").textContent =
-    "Quotes from Yahoo Finance via yfinance, snapshotted after each US close. "
+  document.getElementById("foot").innerHTML =
+    (gaps.length
+      ? `<b>${gaps.join(", ")}</b> have a FIG close but no option quotes — the collector `
+        + `didn't run those days and Yahoo serves the chain live only, so those strikes `
+        + `can't be recovered after the fact. The stock line is complete regardless.<br><br>`
+      : "")
+    + "Quotes from Yahoo Finance via yfinance, snapshotted after each US close. "
     + "Not thinkorswim's own book, and neither basis is an OCC settlement price. "
     + "Nov and Dec 2026 appear automatically if the exchange lists them.";
 }
