@@ -476,15 +476,23 @@ async function main() {
       const bDates = [...new Set(block.map(r => r.date))].sort();
       const bStrikes = [...new Set(block.map(r => r.strike))].sort((a, b) => a - b);
 
+      // A day this expiration has no quote for is only a MISS if it falls
+      // inside the window we were already tracking it. Days before its first
+      // quote are a late start -- a different thing, and not a failure.
+      const first = bDates[0], lastQ = bDates[bDates.length - 1];
+      const ownGaps = axisDates.filter(d => d > first && d < lastQ && !bDates.includes(d));
+      const lateStart = first > axisDates[0];
+
       const card = document.createElement("section");
       card.className = "card";
       const ctx = renderChart(exp, block, metric, axisDates, spotAt, showBars);
       card.innerHTML =
         `<h2>Expiring ${exp}</h2>` +
         `<p class="note">${bStrikes.length} strikes · ${bDates.length} day${bDates.length === 1 ? "" : "s"} of quotes` +
+        `${lateStart ? ` · tracking began ${first}` : ""}` +
         `${bDates.length === 1 ? " · one close so far, so each strike is a single point" : ""}` +
         `${showBars ? " · whisker spans strike+bid to strike+ask" : ""}` +
-        `${gaps.length ? " · dotted span = days with no quotes" : ""}` +
+        `${ownGaps.length ? ` · dotted span = ${ownGaps.length} missed day${ownGaps.length === 1 ? "" : "s"}` : ""}` +
         `${metric === "last" ? " · hollow marker = the last trade is older than that day" : ""}</p>` +
         `<div class="chart-scroll">${ctx.svg}</div>` +
         `<details><summary>Show the numbers</summary>${tableFor(block, bDates, bStrikes, metric)}</details>`;
