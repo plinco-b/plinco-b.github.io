@@ -227,8 +227,8 @@ const W = 960, H = 500, M = { t: 16, r: 116, b: 40, l: 58 };
 // absence, not a $0 option, so it becomes a gap rather than a point on the floor.
 function valueOf(r, metric) {
   if (!r) return null;
-  if (metric === "last") return r.last > 0 ? r.breakeven_last : null;
-  return r.breakeven;
+  const v = metric === "last" ? (r.last > 0 ? r.breakeven_last : null) : r.breakeven;
+  return Number.isFinite(v) ? v : null;
 }
 
 function renderChart(exp, rows, metric, axisDates, spotAt, showBars) {
@@ -251,7 +251,9 @@ function renderChart(exp, rows, metric, axisDates, spotAt, showBars) {
     // inside the current market.
     band: dates.map(d => {
       const r = byKey.get(d + "|" + s);
-      return r && r.ask > 0 ? { lo: r.strike + r.bid, hi: r.strike + r.ask } : null;
+      if (!r || !(r.ask > 0)) return null;
+      const lo = r.strike + r.bid, hi = r.strike + r.ask;
+      return Number.isFinite(lo) && Number.isFinite(hi) ? { lo, hi } : null;
     }),
     // Marks a print carried over from an earlier session: drawn hollow so a
     // two-day-old trade can't read as that day's close.
@@ -268,9 +270,11 @@ function renderChart(exp, rows, metric, axisDates, spotAt, showBars) {
 
   // The scale has to cover the bars too, or a wide quote gets silently clipped
   // and the chart understates exactly the uncertainty it is meant to show.
-  const vals = all.flatMap(s => s.pts).filter(v => v != null).concat(
+  const vals = all.flatMap(s => s.pts).concat(
     showBars ? series.flatMap(s => s.band).filter(Boolean).flatMap(b => [b.lo, b.hi]) : []
-  );
+  ).filter(Number.isFinite);
+  if (!vals.length) return { svg: `<p class="empty">No usable values to plot.</p>`,
+                             dates, all: [], X: () => 0 };
   let lo = Math.min(...vals), hi = Math.max(...vals);
   const padY = (hi - lo || 1) * 0.10;
   lo -= padY; hi += padY;
@@ -452,14 +456,17 @@ async function main() {
   // The stock's history is retrievable retroactively, so the reference line
   // covers every trading day since tracking began -- including days the
   // collector missed, which show as gaps in the strike lines.
-  const spotAt = new Map(spotRows.map(r => [r.date, r.close]));
-  const axisDates = spotRows.map(r => r.date).filter(d => d >= dates[0]).sort();
+  // Only rows with a real close. One NaN here used to reach the y-scale and
+  // flatten every chart on the page, so it is filtered at the source.
+  const usable = spotRows.filter(r => Number.isFinite(r.close));
+  const spotAt = new Map(usable.map(r => [r.date, r.close]));
+  const axisDates = usable.map(r => r.date).filter(d => d >= dates[0]).sort();
   const lastClose = axisDates[axisDates.length - 1];
   const spot = spotAt.get(lastClose);
   const gaps = axisDates.filter(d => !dates.includes(d));
 
   document.getElementById("meta").innerHTML =
-    `<div class="pill">FIG close <b>${money(spot)}</b></div>` +
+    `<div class="pill">FIG close <b>${Number.isFinite(spot) ? money(spot) : "unavailable"}</b></div>` +
     `<div class="pill">as of <b>${lastClose}</b></div>` +
     `<div class="pill"><b>${dates.length}</b> day${dates.length === 1 ? "" : "s"} of quotes` +
     `${gaps.length ? ` · <b style="color:var(--warn)">${gaps.length} missed</b>` : ""}</div>` +
