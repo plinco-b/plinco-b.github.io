@@ -142,17 +142,11 @@
   <div id="charts"><p class="empty">Loading…</p></div>
   <div id="caveat"></div>
   <section class="card" id="payoffCard" hidden>
-    <h2 id="payoffTitle">Candidate structures — payoff</h2>
+    <h2 id="payoffTitle">The position — what it pays, and when</h2>
     <p class="note" id="payoffSub"></p>
-    <div class="controls" style="margin:10px 0 14px">
-      <div class="seg" id="payoffMode" role="group" aria-label="Exit basis">
-        <button data-m="sell" class="on">Sell early</button>
-        <button data-m="hold">Hold to expiry</button>
-      </div>
-      <label class="chk"><input type="checkbox" id="payoffRel"> Show difference from the first</label>
-    </div>
+    <div class="meta" id="payoffStats" style="margin:12px 0 16px"></div>
     <div class="chart-scroll" id="payoffChart"></div>
-    <details><summary>Show the structures</summary><div class="tbl-scroll"><table id="payoffTbl"></table></div></details>
+    <details><summary>Show the legs</summary><div class="tbl-scroll"><table id="payoffTbl"></table></div></details>
     <div class="caveat" id="payoffNote"></div>
   </section>
   <footer id="foot"></footer>
@@ -589,9 +583,13 @@ main();
 </script>
 
 <script>
-/* Payoff curves for candidate structures, from payoff.json (written by payoff.py).
+/* Payoff curves for the held Jan-27 book, from payoff.json (written by payoff.py).
    Wrapped in an IIFE: the tracker above already owns W/H/M, money(), cssVar()
-   and friends at top level, and silently shadowing those would be a nasty bug. */
+   and friends at top level, and silently shadowing those would be a nasty bug.
+
+   One curve per EXIT DATE rather than per structure, because on this book the
+   date is the dominant variable: at FIG $30 it is worth about +$20k on Nov 6,
+   +$11k on Dec 21 and +$0.6k at expiry. The chart exists to show that spread. */
 (async () => {
   let D;
   try {
@@ -599,37 +597,33 @@ main();
     if (!res.ok) throw new Error(res.status);
     D = await res.json();
   } catch { return; }              // no payoff data published -> section stays hidden
-  if (!D || !D.series || !D.series.length) return;
+  // Shape guard: an older payoff.json (candidate structures) has no legs. Better a
+  // hidden section than a half-rendered one built from fields that aren't there.
+  if (!D || !D.legs || !D.series || !D.series.length) return;
 
   const card = document.getElementById("payoffCard");
   card.hidden = false;
-  const W = 960, H = 460, M = { t: 18, r: 118, b: 44, l: 74 };
+  const W = 960, H = 470, M = { t: 18, r: 104, b: 44, l: 78 };
   const dark = () => { const t = document.documentElement.dataset.theme;
     return t ? t === "dark" : matchMedia("(prefers-color-scheme: dark)").matches; };
   const col = s => dark() ? s.dark : s.light;
   const v$ = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
   const usd = v => (v < 0 ? "\u2212$" : "$") + Math.abs(Math.round(v)).toLocaleString();
-  // Relative mode subtracts the FIRST structure so its line is flat zero and every
-  // crossover is just where another line meets it. In absolute terms the curves sit
-  // within a few hundred dollars of each other against a $25k axis — unreadable.
-  const vals = (s, mode, rel) => rel
-    ? s[mode].map((v, i) => v - D.series[0][mode][i])
-    : s[mode];
+  const pct = v => (v >= 0 ? "+" : "\u2212") + Math.abs(v * 100).toFixed(1) + "%";
+  const short = s => s.label.split(" \u00b7 ")[0];
 
   function render() {
-    const mode = document.querySelector("#payoffMode button.on").dataset.m;
-    const rel = document.getElementById("payoffRel").checked;
     const iw = W - M.l - M.r, ih = H - M.t - M.b;
-    const all = D.series.flatMap(s => vals(s, mode, rel));
+    const all = D.series.flatMap(s => s.pnl);
     let lo = Math.min(...all), hi = Math.max(...all);
     const pad = (hi - lo) * 0.08 || 1; lo -= pad; hi += pad;
     const X = p => M.l + (p - D.prices[0]) / (D.prices[D.prices.length - 1] - D.prices[0]) * iw;
     const Y = v => M.t + ih - (v - lo) / (hi - lo) * ih;
-    const grid = v$("--grid"), axis = v$("--axis"), muted = v$("--muted");
+    const grid = v$("--grid"), axis = v$("--axis"), muted = v$("--muted"), spotc = v$("--spot");
 
     const raw = (hi - lo) / 6, mag = Math.pow(10, Math.floor(Math.log10(raw)));
     const step = [1, 2, 2.5, 5, 10].map(m => m * mag).find(x => x >= raw) || 10 * mag;
-    let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Payoff curves by FIG price">`;
+    let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Profit and loss by FIG price, for three exit dates">`;
     for (let v = Math.ceil(lo / step) * step; v <= hi; v += step) {
       const zero = Math.abs(v) < step / 1e6;
       svg += `<line x1="${M.l}" x2="${M.l + iw}" y1="${Y(v).toFixed(1)}" y2="${Y(v).toFixed(1)}" stroke="${zero ? axis : grid}" stroke-width="${zero ? 1.5 : 1}"/>`;
@@ -638,18 +632,19 @@ main();
     svg += `<line x1="${M.l}" x2="${M.l}" y1="${M.t}" y2="${M.t + ih}" stroke="${axis}"/>`;
     for (let p = Math.ceil(D.prices[0] / 5) * 5; p <= D.prices[D.prices.length - 1]; p += 5)
       svg += `<text x="${X(p).toFixed(1)}" y="${H - M.b + 20}" fill="${muted}" font-size="12" text-anchor="middle">$${p}</text>`;
-    svg += `<line x1="${X(D.spot).toFixed(1)}" x2="${X(D.spot).toFixed(1)}" y1="${M.t}" y2="${M.t + ih}" stroke="${muted}" stroke-dasharray="4 3"/>`;
-    svg += `<text x="${(X(D.spot) + 6).toFixed(1)}" y="${M.t + 13}" fill="${muted}" font-size="11.5">today $${D.spot.toFixed(2)}</text>`;
+    svg += `<line x1="${X(D.spot).toFixed(1)}" x2="${X(D.spot).toFixed(1)}" y1="${M.t}" y2="${M.t + ih}" stroke="${spotc}" stroke-dasharray="4 3"/>`;
+    svg += `<text x="${(X(D.spot) + 6).toFixed(1)}" y="${M.t + 13}" fill="${spotc}" font-size="11.5">FIG $${D.spot.toFixed(2)}</text>`;
 
     const ends = [];
     D.series.forEach(s => {
-      const sv = vals(s, mode, rel);
-      svg += `<polyline points="${sv.map((v, i) => `${X(D.prices[i]).toFixed(1)},${Y(v).toFixed(1)}`).join(" ")}" fill="none" stroke="${col(s)}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
-      ends.push({ y: Y(sv[sv.length - 1]), s });
+      svg += `<polyline points="${s.pnl.map((v, i) => `${X(D.prices[i]).toFixed(1)},${Y(v).toFixed(1)}`).join(" ")}" fill="none" stroke="${col(s)}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
+      if (s.be >= D.prices[0] && s.be <= D.prices[D.prices.length - 1])
+        svg += `<circle cx="${X(s.be).toFixed(1)}" cy="${Y(0).toFixed(1)}" r="3.5" fill="${col(s)}"/>`;
+      ends.push({ y: Y(s.pnl[s.pnl.length - 1]), s });
     });
     ends.sort((a, b) => a.y - b.y);
     for (let i = 1; i < ends.length; i++) if (ends[i].y - ends[i - 1].y < 15) ends[i].y = ends[i - 1].y + 15;
-    ends.forEach(e => { svg += `<text x="${M.l + iw + 9}" y="${(e.y + 4).toFixed(1)}" fill="${col(e.s)}" font-size="12.5" font-weight="600">${e.s.label.split(" ")[0]}</text>`; });
+    ends.forEach(e => { svg += `<text x="${M.l + iw + 9}" y="${(e.y + 4).toFixed(1)}" fill="${col(e.s)}" font-size="12.5" font-weight="600">${short(e.s)}</text>`; });
     svg += `<rect class="hit" x="${M.l}" y="${M.t}" width="${iw}" height="${ih}" fill="transparent"/>`;
     svg += `<line class="cross" y1="${M.t}" y2="${M.t + ih}" stroke="${axis}" opacity="0"/></svg>`;
     document.getElementById("payoffChart").innerHTML = svg;
@@ -663,8 +658,8 @@ main();
       cross.setAttribute("x1", X(D.prices[best])); cross.setAttribute("x2", X(D.prices[best]));
       cross.setAttribute("opacity", "1");
       let html = `<div class="d">FIG $${D.prices[best].toFixed(2)}</div>`;
-      D.series.forEach(s => { const v = vals(s, mode, rel)[best];
-        html += `<div class="r"><i style="background:${col(s)}"></i><span>${s.label.split(" ")[0]}</span><b>${(rel && v > 0 ? "+" : "") + usd(v)}</b></div>`; });
+      D.series.forEach(s => { const v = s.pnl[best];
+        html += `<div class="r"><i style="background:${col(s)}"></i><span>${short(s)}</span><b>${(v > 0 ? "+" : "") + usd(v)}<em>${pct(v / D.cost)}</em></b></div>`; });
       tip.innerHTML = html; tip.style.opacity = "1";
       let left = ev.clientX + 16, top = ev.clientY - tip.offsetHeight / 2;
       if (left + tip.offsetWidth > innerWidth - 8) left = ev.clientX - tip.offsetWidth - 16;
@@ -673,30 +668,42 @@ main();
     });
     el.addEventListener("pointerleave", () => { cross.setAttribute("opacity", "0"); tip.style.opacity = "0"; });
 
-    const be = mode === "sell" ? "beSell" : "beHold";
     document.getElementById("payoffTbl").innerHTML =
-      `<thead><tr><th>structure</th><th>legs</th><th>contracts</th><th>cost</th><th>intrinsic</th><th>time value at risk</th><th>break-even</th></tr></thead><tbody>` +
-      D.series.map(s => `<tr><td><i style="display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:7px;background:${col(s)}"></i>${s.label}</td><td>${s.legs}</td><td>${s.contracts}</td><td>${usd(s.cost)}</td><td>${usd(s.intrinsic)}</td><td>${usd(s.cost - s.intrinsic)} (${Math.round((s.cost - s.intrinsic) / s.cost * 100)}%)</td><td>${s[be] ? "$" + s[be].toFixed(2) : "\u2014"}</td></tr>`).join("") + `</tbody>`;
+      `<thead><tr><th>strike</th><th>qty</th><th>paid</th><th>cost</th><th>bid</th><th>ask</th>` +
+      `<th>value at mid</th><th>P&amp;L</th><th>IV</th><th>intrinsic</th><th>time value</th><th>leg break-even</th></tr></thead><tbody>` +
+      D.legs.map(l => `<tr><td>$${l.strike}</td><td>${l.qty}</td><td>${l.costPer.toFixed(2)}</td><td>${usd(l.cost)}</td>` +
+        `<td>${l.bid.toFixed(2)}</td><td>${l.ask.toFixed(2)}</td><td>${usd(l.value)}</td>` +
+        `<td>${(l.pnl > 0 ? "+" : "") + usd(l.pnl)}</td><td>${Math.round(l.iv * 100)}%</td>` +
+        `<td>${usd(l.intrinsic)}</td><td>${usd(l.timeValue)}</td><td>$${l.be.toFixed(2)}</td></tr>`).join("") +
+      `<tr><td><b>${D.legs.length} legs</b></td><td><b>${D.contracts}</b></td><td></td><td><b>${usd(D.cost)}</b></td>` +
+      `<td colspan="2"></td><td><b>${usd(D.value)}</b></td><td><b>${(D.value - D.cost > 0 ? "+" : "") + usd(D.value - D.cost)}</b></td>` +
+      `<td></td><td><b>${usd(D.intrinsic)}</b></td><td><b>${usd(D.timeValue)}</b></td><td></td></tr></tbody>`;
 
+    const borrowed = (D.borrowedIv || []).map(b => `$${b.strike} (taken from $${b.from})`).join(", ");
     document.getElementById("payoffNote").innerHTML =
-      (rel ? `<b>Showing the difference from ${D.series[0].label.split(" ")[0]}</b>, so it is the flat zero line and a crossover is wherever another structure meets it. Above the line is better at that price.<br><br>` : "") +
-      (mode === "sell"
-        ? `<b>Selling on ${D.exit}</b> — ${D.daysToExit} days after the ${D.asof} close, with ${D.daysLeftAtExit} days still left in the contracts, so you sell the remaining time value instead of letting it expire. Assumes implied volatility is unchanged; a fall in FIG would more likely come with vol rising, which would soften the left-hand side.`
-        : `<b>Holding to ${D.expiration}</b> — only intrinsic value remains, so every strike above FIG's price is worth exactly zero. Break-even is higher than selling early, and the curve is straight lines with a kink at each strike.`);
+      `<b>Three exits, one position.</b> ` +
+      D.series.map(s => `<b>${short(s)}</b> breaks even at <b>$${s.be.toFixed(2)}</b>` +
+        (s.daysLeft ? ` with ${s.daysLeft} days still left in the contracts` : ` at expiry, intrinsic only`)).join("; ") +
+      `. The gap between them is time decay: <b>${usd(D.theta)} a day</b> at today's price, ` +
+      `and <b>${Math.round(D.timeValue / D.value * 100)}% of what the book is worth right now is time value</b>, not intrinsic.` +
+      `<br><br>Curves assume implied volatility is unchanged. A fall in FIG would more likely come with vol rising, ` +
+      `which softens the left-hand side; a post-earnings vol crush would pull the whole curve down. ` +
+      `Value is marked at the <b>mid</b> — selling hits the bid, which is ${usd(D.value - D.valueBid)} lower across the book.` +
+      (borrowed ? ` Deep in-the-money legs have no time value left to solve a volatility from, so theirs is borrowed: ${borrowed}.` : "");
   }
 
   document.getElementById("payoffSub").textContent =
-    `Hypothetical January 2027 call structures — none is a held position. Priced at the ask plus $0.65/contract, `
-    + `from the ${D.asof} close with FIG at $${D.spot.toFixed(2)}.`;
-  document.querySelector('#payoffMode button[data-m="sell"]').textContent = `Sell ${D.exit.slice(5)}`;
-  const seg = document.getElementById("payoffMode");
-  seg.addEventListener("click", ev => {
-    const b = ev.target.closest("button[data-m]"); if (!b) return;
-    [...seg.children].forEach(x => x.classList.toggle("on", x === b));
-    render();
-  });
-  document.getElementById("payoffRel").addEventListener("change", render);
-  render();
+    `A real held position in January 2027 FIG calls — ${D.contracts} contracts across ${D.legs.length} strikes, `
+    + `priced from ${D.basis} with FIG at $${D.spot.toFixed(2)}.`;
+  const pl = D.value - D.cost;
+  document.getElementById("payoffStats").innerHTML = [
+    ["cost", usd(D.cost)], ["value at mid", usd(D.value)],
+    ["P&amp;L", `${pl > 0 ? "+" : ""}${usd(pl)} (${pct(pl / D.cost)})`],
+    ["time value", `${usd(D.timeValue)} (${Math.round(D.timeValue / D.value * 100)}%)`],
+    ["theta", `${usd(D.theta)}/day`],
+    ["delta", `${usd(D.delta)} per $1`],
+  ].map(([k, v]) => `<span class="pill">${k} <b>${v}</b></span>`).join("");
+  render();   // the tracker above already reloads the page on a theme change
 })();
 </script>
 </body>
