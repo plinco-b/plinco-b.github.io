@@ -141,6 +141,13 @@
   </div>
   <div id="charts"><p class="empty">Loading…</p></div>
   <div id="caveat"></div>
+  <section class="card" id="premiumCard" hidden>
+    <h2>What the calls themselves cost</h2>
+    <p class="note" id="premiumNote"></p>
+    <div class="chart-scroll" id="premiumChart"></div>
+    <details><summary>Show the numbers</summary><div id="premiumTbl"></div></details>
+    <div class="caveat" id="premiumCaveat"></div>
+  </section>
   <section class="card" id="payoffCard" hidden>
     <h2 id="payoffTitle">The position — what it pays, and when</h2>
     <p class="note" id="payoffSub"></p>
@@ -233,26 +240,35 @@ const W = 960, H = 500, M = { t: 16, r: 116, b: 40, l: 58 };
 
 // On "last", a strike that has never printed carries lastPrice 0 -- that is an
 // absence, not a $0 option, so it becomes a gap rather than a point on the floor.
-function valueOf(r, metric) {
+// `premium` switches the y value from what FIG must REACH (strike + the call's
+// price) to what the call itself COSTS. Same quote, the strike subtracted back
+// out -- so the two charts can never disagree about a day.
+function valueOf(r, metric, premium) {
   if (!r) return null;
-  const v = metric === "last" ? (r.last > 0 ? r.breakeven_last : null) : r.breakeven;
+  let v = metric === "last" ? (r.last > 0 ? r.breakeven_last : null) : r.breakeven;
+  if (v != null && premium) v -= r.strike;
   return Number.isFinite(v) ? v : null;
 }
 
-function renderChart(exp, rows, metric, axisDates, spotAt, showBars) {
+function renderChart(exp, rows, metric, axisDates, spotAt, showBars, opts = {}) {
+  const { premium = false, only = null, colors: fixedColors = null } = opts;
+  if (only) rows = rows.filter(r => only.includes(r.strike));
   // The axis spans every trading day we have a close for, not just the days
   // with option quotes -- Yahoo serves the chain live only, so a day the
   // collector missed has a stock price but no strikes. Those become gaps in
   // the strike lines rather than a silently compressed axis.
   const dates = axisDates;
   const strikes = [...new Set(rows.map(r => r.strike))].sort((a, b) => a - b);
-  const colors = ramp();
+  // Three adjacent steps of a single-hue ramp are not separable; a 3-series
+  // chart gets the categorical slots instead. Identity still never rests on
+  // colour alone -- every line is labelled at its right end either way.
+  const colors = fixedColors || ramp();
 
   const byKey = new Map(rows.map(r => [r.date + "|" + r.strike, r]));
 
   const series = strikes.map((s, i) => ({
     key: fmtStrike(s), color: colors[i % colors.length],
-    pts: dates.map(d => valueOf(byKey.get(d + "|" + s), metric)),
+    pts: dates.map(d => valueOf(byKey.get(d + "|" + s), metric, premium)),
     // The whole quoted range for that strike: you can only buy at the ask and
     // only sell at the bid, so breakeven genuinely lies anywhere in here. Same
     // band in both modes -- under "last" it shows whether the print is even
@@ -260,7 +276,8 @@ function renderChart(exp, rows, metric, axisDates, spotAt, showBars) {
     band: dates.map(d => {
       const r = byKey.get(d + "|" + s);
       if (!r || !(r.ask > 0)) return null;
-      const lo = r.strike + r.bid, hi = r.strike + r.ask;
+      const base = premium ? 0 : r.strike;
+      const lo = base + r.bid, hi = base + r.ask;
       return Number.isFinite(lo) && Number.isFinite(hi) ? { lo, hi } : null;
     }),
     // Marks a print carried over from an earlier session: drawn hollow so a
@@ -270,11 +287,14 @@ function renderChart(exp, rows, metric, axisDates, spotAt, showBars) {
       return metric === "last" && r ? r.last_age_days > 0 : false;
     })
   }));
-  const spotSeries = {
+  // No FIG line on the premium chart: the stock sits at $22 and the calls at
+  // $0.60-$2.50, so one axis cannot carry both and a second axis would invite
+  // reading a crossing that means nothing.
+  const spotSeries = premium ? { key: null, pts: dates.map(() => null) } : {
     key: "FIG close", color: cssVar("--spot"), dashed: true, isSpot: true,
     pts: dates.map(d => spotAt.get(d) ?? null)
   };
-  const all = [...series, spotSeries];
+  const all = premium ? [...series] : [...series, spotSeries];
 
   // The scale has to cover the bars too, or a wide quote gets silently clipped
   // and the chart understates exactly the uncertainty it is meant to show.
@@ -295,7 +315,7 @@ function renderChart(exp, rows, metric, axisDates, spotAt, showBars) {
   const { ticks, label: tickLabel } = niceTicks(lo, hi, 6);
   const grid = cssVar("--grid"), axis = cssVar("--axis"), muted = cssVar("--muted");
 
-  let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Breakeven by strike for FIG calls expiring ${exp}">`;
+  let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${premium ? `What the FIG ${exp} calls cost, by strike` : `Breakeven by strike for FIG calls expiring ${exp}`}">`;
   ticks.forEach(t => {
     svg += `<line x1="${M.l}" x2="${M.l + iw}" y1="${Y(t).toFixed(1)}" y2="${Y(t).toFixed(1)}" stroke="${grid}" stroke-width="1"/>`;
     svg += `<text x="${M.l - 10}" y="${(Y(t) + 4).toFixed(1)}" fill="${muted}" font-size="12" text-anchor="end">${tickLabel(t)}</text>`;
@@ -379,7 +399,7 @@ function renderChart(exp, rows, metric, axisDates, spotAt, showBars) {
   return { svg, dates, all, X, geom: { iw, ih } };
 }
 
-function tableFor(rows, dates, strikes, metric) {
+function tableFor(rows, dates, strikes, metric, premium) {
   let h = `<div class="tbl-scroll"><table><thead><tr><th>Date</th><th>FIG</th>`;
   strikes.forEach(s => { h += `<th>${fmtStrike(s)}</th>`; });
   h += `</tr></thead><tbody>`;
@@ -389,7 +409,7 @@ function tableFor(rows, dates, strikes, metric) {
     h += `<tr><td>${d}</td><td>${money(spotAt.get(d))}</td>`;
     strikes.forEach(s => {
       const r = byKey.get(d + "|" + s);
-      const v = valueOf(r, metric);
+      const v = valueOf(r, metric, premium);
       const stale = metric === "last" && r && r.last_age_days > 0;
       h += `<td>${v == null ? "—" : money(v) + (stale ? ` <span style="color:var(--muted)">(${r.last_age_days}d old)</span>` : "")}</td>`;
     });
@@ -448,6 +468,13 @@ async function main() {
   let rows, spotRows;
   try {
     [rows, spotRows] = await Promise.all([grab("chain.csv"), grab("spot.csv")]);
+    // A ZERO IS NOT A QUOTE, AND A DEAD STRIKE IS NOT A PRICE. The $2.5 call
+    // carries no open interest and Yahoo serves bid=ask=0 for it on most days;
+    // plotted as strike+0 that drew a flat line at $2.50 claiming the call was
+    // FREE — the most wrong thing on the page, and the one nobody could buy.
+    // Both filters are kept: the strike is gone, and any other strike that ever
+    // goes unquoted drops that day rather than printing its strike as the answer.
+    rows = rows.filter(r => r.strike !== 2.5 && r.bid > 0 && r.ask > 0 && r.ask >= r.bid);
   } catch (e) {
     document.getElementById("charts").innerHTML =
       `<p class="empty">Couldn't load the data (${e.message}).</p>`;
@@ -514,7 +541,59 @@ async function main() {
       host.appendChild(card);
       wireHover(card, ctx);
     });
+    renderPremium(metric, showBars);
     renderCaveat(metric);
+  }
+
+  // The three strikes that are pure premium: nothing but the price of maybe, so
+  // the breakeven chart (which adds the strike back on) says almost nothing
+  // about how they have actually moved. Here the strike is subtracted out.
+  const PREMIUM_EXP = "2027-01-15", PREMIUM_STRIKES = [25, 30, 35];
+  const PREMIUM_COLORS = { light: ["#2a78d6", "#eb6834", "#1baf7a"],
+                           dark:  ["#3987e5", "#d95926", "#199e70"] };
+
+  function renderPremium(metric, showBars) {
+    const card = document.getElementById("premiumCard");
+    const block = rows.filter(r => r.expiration === PREMIUM_EXP
+                                && PREMIUM_STRIKES.includes(r.strike));
+    if (!block.length) { card.hidden = true; return; }
+    card.hidden = false;
+
+    const have = PREMIUM_STRIKES.filter(k => block.some(r => r.strike === k));
+    const ctx = renderChart(PREMIUM_EXP, block, metric, axisDates, spotAt, showBars,
+      { premium: true, only: PREMIUM_STRIKES,
+        colors: isDark() ? PREMIUM_COLORS.dark : PREMIUM_COLORS.light });
+    document.getElementById("premiumChart").innerHTML = ctx.svg;
+
+    const bDates = [...new Set(block.map(r => r.date))].sort();
+    // Say plainly where a line simply does not go back as far, rather than
+    // letting a stub at the right edge read as a collapse.
+    const late = have.map(k => {
+        const f = block.filter(r => r.strike === k).map(r => r.date).sort()[0];
+        return f > bDates[0] ? `$${fmtStrike(k)} from ${f}` : null;
+      }).filter(Boolean);
+    document.getElementById("premiumNote").innerHTML =
+      `The ${PREMIUM_EXP} calls at $${have.map(fmtStrike).join(", $")} — the price of the option `
+      + `itself, with the strike subtracted out`
+      + `${showBars ? " · whisker spans bid to ask" : ""}`
+      + `${metric === "last" ? " · last trade, hollow marker = older than that day" : ""}`
+      + `${late.length ? ` · tracking began later for ${late.join(", ")}` : ""}`;
+    document.getElementById("premiumTbl").innerHTML =
+      tableFor(block, bDates, have, metric, true);
+
+    const first = {}, last = {};
+    have.forEach(k => {
+      const sr = block.filter(r => r.strike === k).sort((a, b) => a.date < b.date ? -1 : 1);
+      first[k] = sr[0]; last[k] = sr[sr.length - 1];
+    });
+    document.getElementById("premiumCaveat").innerHTML =
+      `<b>This is the chart that shows decay.</b> These three strikes are entirely time value — `
+      + `FIG is nowhere near any of them, so none has a cent of intrinsic value and every dollar `
+      + `here is a bet that it moves before 2027-01-15. `
+      + have.map(k => `$${fmtStrike(k)} went ${money(first[k].mid)} (${first[k].date}) `
+                    + `→ ${money(last[k].mid)} (${last[k].date})`).join("; ")
+      + `. The breakeven chart above adds the strike back on, which flattens exactly this.`;
+    wireHover(card, ctx);
   }
 
   function renderCaveat(metric) {
