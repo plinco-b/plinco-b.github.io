@@ -148,6 +148,14 @@
     <details><summary>Show the numbers</summary><div id="premiumTbl"></div></details>
     <div class="caveat" id="premiumCaveat"></div>
   </section>
+  <section class="card" id="perfCard" hidden>
+    <h2>How the position has actually done</h2>
+    <p class="note" id="perfSub"></p>
+    <div class="meta" id="perfStats" style="margin:12px 0 16px"></div>
+    <div class="chart-scroll" id="perfChart"></div>
+    <details><summary>Show the purchases</summary><div class="tbl-scroll"><table id="perfTbl"></table></div></details>
+    <div class="caveat" id="perfNote"></div>
+  </section>
   <section class="card" id="payoffCard" hidden>
     <h2 id="payoffTitle">The position — what it pays, and when</h2>
     <p class="note" id="payoffSub"></p>
@@ -662,6 +670,154 @@ main();
 </script>
 
 <script>
+/* Money-weighted performance of the real book, from performance.json.
+   Own IIFE for the same reason as the payoff block below: the tracker at the top
+   owns W/H/M, money() and cssVar() globally.
+
+   The position GREW, so a single percentage is ambiguous -- "up 11%" on the
+   first $2,570 is a different claim from up 11% on all $12,459. Plotting cash
+   invested as a STEP against the mark makes the question disappear: the gap
+   between the two lines is the P&L, in dollars, at every point. */
+(async () => {
+  let D;
+  try {
+    const res = await fetch("performance.json", { cache: "no-store" });
+    if (!res.ok) throw new Error(res.status);
+    D = await res.json();
+  } catch { return; }
+  if (!D || !D.rows || D.rows.length < 2) return;
+
+  document.getElementById("perfCard").hidden = false;
+  const W = 960, H = 420, M = { t: 18, r: 96, b: 44, l: 84 };
+  const dark = () => { const t = document.documentElement.dataset.theme;
+    return t ? t === "dark" : matchMedia("(prefers-color-scheme: dark)").matches; };
+  const v$ = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+  const usd = v => (v < 0 ? "\u2212$" : "$") + Math.abs(Math.round(v)).toLocaleString();
+  const COST = dark() ? "#898781" : "#898781";
+  const VAL  = dark() ? "#3987e5" : "#2a78d6";
+
+  const rows = D.rows, n = rows.length;
+  const iw = W - M.l - M.r, ih = H - M.t - M.b;
+  const X = i => n === 1 ? M.l + iw / 2 : M.l + (i / (n - 1)) * iw;
+  const vals = rows.flatMap(r => [r.invested, r.value]).filter(v => v != null);
+  let lo = Math.min(...vals), hi = Math.max(...vals);
+  const pad = (hi - lo || 1) * 0.12; lo -= pad; hi += pad;
+  const Y = v => M.t + ih - ((v - lo) / (hi - lo)) * ih;
+
+  const grid = v$("--grid"), axis = v$("--axis"), muted = v$("--muted"), warn = v$("--warn");
+  const raw = (hi - lo) / 5, mag = Math.pow(10, Math.floor(Math.log10(raw)));
+  const step = [1, 2, 2.5, 5, 10].map(m => m * mag).find(x => x >= raw) || 10 * mag;
+
+  let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Cash invested against the position's mark, by date">`;
+  for (let v = Math.ceil(lo / step) * step; v <= hi; v += step) {
+    svg += `<line x1="${M.l}" x2="${M.l + iw}" y1="${Y(v).toFixed(1)}" y2="${Y(v).toFixed(1)}" stroke="${grid}"/>`;
+    svg += `<text x="${M.l - 10}" y="${(Y(v) + 4).toFixed(1)}" fill="${muted}" font-size="12" text-anchor="end">${usd(v)}</text>`;
+  }
+  svg += `<line x1="${M.l}" x2="${M.l}" y1="${M.t}" y2="${M.t + ih}" stroke="${axis}"/>`;
+  rows.forEach((r, i) => {
+    if (i % Math.ceil(n / 8) && i !== n - 1) return;
+    svg += `<text x="${X(i).toFixed(1)}" y="${H - M.b + 20}" fill="${muted}" font-size="12" text-anchor="middle">${r.date.slice(5)}</text>`;
+  });
+
+  // Sessions nobody can value are shaded, not interpolated across.
+  rows.forEach((r, i) => {
+    if (r.value != null) return;
+    const a = i === 0 ? X(0) : (X(i - 1) + X(i)) / 2;
+    const b = i === n - 1 ? X(n - 1) : (X(i) + X(i + 1)) / 2;
+    svg += `<rect x="${a.toFixed(1)}" y="${M.t}" width="${(b - a).toFixed(1)}" height="${ih}" fill="${warn}" opacity="0.10"/>`;
+  });
+
+  // Cash in, as a true step: it only changes on a purchase.
+  let d = `M ${X(0).toFixed(1)} ${Y(rows[0].invested).toFixed(1)}`;
+  for (let i = 1; i < n; i++)
+    d += ` L ${X(i).toFixed(1)} ${Y(rows[i - 1].invested).toFixed(1)} L ${X(i).toFixed(1)} ${Y(rows[i].invested).toFixed(1)}`;
+  svg += `<path d="${d}" fill="none" stroke="${COST}" stroke-width="2" stroke-dasharray="5 3"/>`;
+
+  // The mark, broken wherever a day could not be valued.
+  let seg = [];
+  const flush = () => {
+    if (seg.length > 1) svg += `<polyline points="${seg.join(" ")}" fill="none" stroke="${VAL}" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>`;
+    else if (seg.length === 1) svg += `<circle cx="${seg[0].split(",")[0]}" cy="${seg[0].split(",")[1]}" r="3" fill="${VAL}"/>`;
+    seg = [];
+  };
+  rows.forEach((r, i) => { if (r.value == null) flush(); else seg.push(`${X(i).toFixed(1)},${Y(r.value).toFixed(1)}`); });
+  flush();
+  rows.forEach((r, i) => { if (r.value != null) svg += `<circle cx="${X(i).toFixed(1)}" cy="${Y(r.value).toFixed(1)}" r="3" fill="${VAL}"/>`; });
+
+  // A tick under every day money went in.
+  const buyDates = [...new Set(D.trades.map(t => t.date))];
+  buyDates.forEach(bd => {
+    const i = rows.findIndex(r => r.date === bd);
+    if (i < 0) return;
+    svg += `<line x1="${X(i).toFixed(1)}" x2="${X(i).toFixed(1)}" y1="${M.t + ih}" y2="${M.t + ih + 7}" stroke="${COST}" stroke-width="2"/>`;
+  });
+  svg += `<text x="${M.l + iw + 9}" y="${(Y(rows[n - 1].value) + 4).toFixed(1)}" fill="${VAL}" font-size="12.5" font-weight="600">mark</text>`;
+  svg += `<text x="${M.l + iw + 9}" y="${(Y(rows[n - 1].invested) + 4).toFixed(1)}" fill="${COST}" font-size="12.5" font-weight="600">cash in</text>`;
+  svg += `<rect class="hit" x="${M.l}" y="${M.t}" width="${iw}" height="${ih}" fill="transparent"/>`;
+  svg += `<line class="cross" y1="${M.t}" y2="${M.t + ih}" stroke="${axis}" opacity="0"/></svg>`;
+  document.getElementById("perfChart").innerHTML = svg;
+
+  const el = document.querySelector("#perfChart svg");
+  const cross = el.querySelector(".cross"), tip = document.getElementById("tip");
+  el.addEventListener("pointermove", ev => {
+    const box = el.getBoundingClientRect(), sx = (ev.clientX - box.left) * (W / box.width);
+    let best = 0, bd = Infinity;
+    rows.forEach((_, i) => { const dd = Math.abs(X(i) - sx); if (dd < bd) { bd = dd; best = i; } });
+    const r = rows[best];
+    cross.setAttribute("x1", X(best)); cross.setAttribute("x2", X(best));
+    cross.setAttribute("opacity", "1");
+    let html = `<div class="d">${r.date}${r.spot != null ? ` &middot; FIG $${r.spot.toFixed(2)}` : ""}</div>`;
+    html += `<div class="r"><i style="background:${COST}"></i><span>cash in</span><b>${usd(r.invested)}<em>${r.contracts} ct</em></b></div>`;
+    if (r.value == null) html += `<div class="r"><span style="color:var(--warn)">not valuable — no quote yet for the $35</span></div>`;
+    else {
+      const pl = r.value - r.invested;
+      html += `<div class="r"><i style="background:${VAL}"></i><span>mark</span><b>${usd(r.value)}</b></div>`;
+      html += `<div class="r"><span>P&amp;L</span><b>${pl > 0 ? "+" : ""}${usd(pl)}<em>${(pl / r.invested * 100).toFixed(1)}%</em></b></div>`;
+    }
+    const bought = D.trades.filter(t => t.date === r.date);
+    bought.forEach(t => { html += `<div class="r"><span style="color:var(--muted)">bought ${t.qty}&times; $${t.strike}</span><b>${usd(t.cost)}</b></div>`; });
+    tip.innerHTML = html; tip.style.opacity = "1";
+    let left = ev.clientX + 16, top = ev.clientY - tip.offsetHeight / 2;
+    if (left + tip.offsetWidth > innerWidth - 8) left = ev.clientX - tip.offsetWidth - 16;
+    tip.style.left = Math.max(8, left) + "px";
+    tip.style.top = Math.min(Math.max(8, top), innerHeight - tip.offsetHeight - 8) + "px";
+  });
+  el.addEventListener("pointerleave", () => { cross.setAttribute("opacity", "0"); tip.style.opacity = "0"; });
+
+  const pl = D.value - D.invested, plb = D.valueBid - D.invested;
+  document.getElementById("perfSub").textContent =
+    `Cash actually committed against what the holdings were worth at each close, ${D.firstTrade} to ${D.asof}. `
+    + `The position was built in ${[...new Set(D.trades.map(t => t.date))].length} purchases, so the cash line is a step.`;
+  document.getElementById("perfStats").innerHTML = [
+    ["invested", usd(D.invested)], ["mark", usd(D.value)],
+    ["P&amp;L", `${pl > 0 ? "+" : ""}${usd(pl)} (${(pl / D.invested * 100).toFixed(1)}%)`],
+    ["at bid", `${plb > 0 ? "+" : ""}${usd(plb)} (${(plb / D.invested * 100).toFixed(1)}%)`],
+    ["best close", `${D.best.pnl > 0 ? "+" : ""}${usd(D.best.pnl)} ${D.best.date.slice(5)}`],
+    ["worst close", `${D.worst.pnl > 0 ? "+" : ""}${usd(D.worst.pnl)} ${D.worst.date.slice(5)}`],
+  ].map(([k, v]) => `<span class="pill">${k} <b>${v}</b></span>`).join("");
+
+  document.getElementById("perfTbl").innerHTML =
+    `<thead><tr><th>date</th><th>strike</th><th>contracts</th><th>cost</th><th>per contract</th><th>running total</th><th>source</th></tr></thead><tbody>` +
+    D.trades.map((t, i) => {
+      const run = D.trades.slice(0, i + 1).reduce((a, x) => a + x.cost, 0);
+      return `<tr><td>${t.date}</td><td>$${t.strike}</td><td>${t.qty}</td><td>${usd(t.cost)}</td>` +
+             `<td>$${(t.cost / (t.qty * 100)).toFixed(4)}</td><td>${usd(run)}</td>` +
+             `<td>${t.source === "statement" ? "statement" : `<span style="color:var(--warn)">${t.source}</span>`}</td></tr>`;
+    }).join("") + `</tbody>`;
+
+  const un = D.unvalued || [];
+  document.getElementById("perfNote").innerHTML =
+    `<b>The gap between the two lines is the money.</b> Cash in rises only when contracts were bought; `
+    + `the mark moves every day. Both are in dollars, so the growing position never flatters the percentage — `
+    + `${usd(pl)} on ${usd(D.invested)} committed.`
+    + (un.length ? `<br><br>The shaded ${un.length} session${un.length === 1 ? "" : "s"} `
+        + `(${un.map(u => u.date.slice(5)).join(", ")}) <b>cannot be valued</b>: the $35 strike was not tracked `
+        + `until 2026-10-13, and marking the missing leg at what it cost would draw a flat, flattering line `
+        + `through exactly the stretch nobody can check. The cash line is exact throughout.` : "")
+    + `<br><br>Marked at the <b>mid</b>. Selling hits the bid, which is ${usd(D.value - D.valueBid)} lower today — `
+    + `a gap that widens after the close, so the honest exit number sits between the two.`;
+})();
+
 /* Payoff curves for the held Jan-27 book, from payoff.json (written by payoff.py).
    Wrapped in an IIFE: the tracker above already owns W/H/M, money(), cssVar()
    and friends at top level, and silently shadowing those would be a nasty bug.
