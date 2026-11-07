@@ -174,6 +174,14 @@
    "value": 4127.5,
    "valueBid": 3726.0,
    "contracts": 93,
+   "spot": 18.44
+  },
+  {
+   "date": "2026-11-06",
+   "invested": 12458.56,
+   "value": 3968.0,
+   "valueBid": 3658.0,
+   "contracts": 93,
    "spot": null
   }
  ],
@@ -269,18 +277,18 @@
   }
  ],
  "firstTrade": "2026-10-07",
- "asof": "2026-11-05",
+ "asof": "2026-11-06",
  "invested": 12458.56,
- "value": 4127.5,
- "valueBid": 3726.0,
+ "value": 3968.0,
+ "valueBid": 3658.0,
  "contracts": 93,
  "best": {
   "date": "2026-10-23",
   "pnl": 5782.44
  },
  "worst": {
-  "date": "2026-11-05",
-  "pnl": -8331.06
+  "date": "2026-11-06",
+  "pnl": -8490.56
  },
- "generated": "2026-11-05"
+ "generated": "2026-11-06"
 }
