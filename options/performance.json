@@ -214,7 +214,7 @@
    "value": 3625.0,
    "valueBid": 3234.0,
    "contracts": 93,
-   "spot": null
+   "spot": 19.45
   }
  ],
  "trades": [
@@ -322,5 +322,5 @@
   "date": "2026-11-10",
   "pnl": -8985.56
  },
- "generated": "2026-11-13"
+ "generated": "2026-11-14"
 }
